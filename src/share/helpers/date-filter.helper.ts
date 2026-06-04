@@ -15,8 +15,8 @@ export function resolveYears(q: BaseQueryParams): number[] | null {
 
 export function yearCondition(alias: string, field: string, years: number[] | null): string {
   if (!years || years.length === 0) return '1=1';
-  if (years.length === 1) return `EXTRACT(YEAR FROM ${alias}."${field}") = ${years[0]}`;
-  return `EXTRACT(YEAR FROM ${alias}."${field}") IN (${years.join(',')})`;
+  if (years.length === 1) return `EXTRACT(YEAR FROM ${alias}."${field}"::date) = ${years[0]}`;
+  return `EXTRACT(YEAR FROM ${alias}."${field}"::date) IN (${years.join(',')})`;
 }
 
 export function getInstallmentNo(effectiveDate: string, targetDate: string): number | null {

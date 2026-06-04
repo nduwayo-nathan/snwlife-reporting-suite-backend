@@ -17,12 +17,6 @@ export class PremiumQueryParams extends BaseQueryParams {
   @IsOptional()
   @IsString()
   policies?: string;
-}
-
-export class PremiumListQueryParams extends PremiumQueryParams {
-  @IsOptional()
-  @IsString()
-  search?: string;
 
   @IsOptional()
   @IsNumberString()
@@ -31,4 +25,10 @@ export class PremiumListQueryParams extends PremiumQueryParams {
   @IsOptional()
   @IsNumberString()
   pageSize?: string;
+
+  @IsOptional()
+  @IsString()
+  search?: string;
 }
+
+export class PremiumListQueryParams extends PremiumQueryParams {}

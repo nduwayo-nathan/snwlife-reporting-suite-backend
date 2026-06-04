@@ -37,9 +37,7 @@ export class ClaimQueryParams extends BaseQueryParams {
   @IsOptional()
   @IsString()
   policyYears?: string;
-}
 
-export class ClaimListQueryParams extends ClaimQueryParams {
   @IsOptional()
   @IsNumberString()
   page?: string;
@@ -52,3 +50,5 @@ export class ClaimListQueryParams extends ClaimQueryParams {
   @IsString()
   search?: string;
 }
+
+export class ClaimListQueryParams extends ClaimQueryParams {}

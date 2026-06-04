@@ -24,7 +24,7 @@ export class ClaimsService {
   async getYears(): Promise<number[]> {
     const rows = await this.claimRepo
       .createQueryBuilder('c')
-      .select('DISTINCT EXTRACT(YEAR FROM c."ClaimDate")::int', 'year')
+      .select('DISTINCT EXTRACT(YEAR FROM c."ClaimDate"::date)::int', 'year')
       .where('c."ClaimDate" IS NOT NULL')
       .orderBy('year', 'ASC')
       .getRawMany();
@@ -37,7 +37,7 @@ export class ClaimsService {
 
     const qb = this.claimRepo
       .createQueryBuilder('c')
-      .select('EXTRACT(MONTH FROM c."ClaimDate")::int', 'month')
+      .select('EXTRACT(MONTH FROM c."ClaimDate"::date)::int', 'month')
       .addSelect('SUM(c."AmountPaid")', 'value')
       .addSelect('COUNT(DISTINCT c."PolicyNumber")', 'count')
       .where(yearCondition('c', 'ClaimDate', years))
@@ -65,6 +65,8 @@ export class ClaimsService {
     const years = resolveYears(q);
     const policies = q.policies?.split(',').filter(Boolean) ?? [];
     const policyEffectiveYears = this.resolvePolicyEffectiveYears(q);
+    const page = q.page ? +q.page : 1;
+    const pageSize = q.pageSize ? +q.pageSize : 20;
 
     const qb = this.claimRepo
       .createQueryBuilder('c')
@@ -84,19 +86,27 @@ export class ClaimsService {
       ])
       .where(yearCondition('c', 'ClaimDate', years));
 
-    if (q.product)
-      qb.andWhere('c."Product" = :product', { product: q.product });
-    if (q.status)
-      qb.andWhere('c."ClaimStatus" = :status', { status: q.status });
-    if (q.claimType)
-      qb.andWhere('c."ClaimType" = :claimType', { claimType: q.claimType });
-    if (policies.length)
-      qb.andWhere('c."PolicyNumber" IN (:...policies)', { policies });
-    if (policyEffectiveYears) {
-      qb.andWhere(yearCondition('pol', 'EffectiveDate', policyEffectiveYears));
+    if (q.product) qb.andWhere('c."Product" = :product', { product: q.product });
+    if (q.status) qb.andWhere('c."ClaimStatus" = :status', { status: q.status });
+    if (q.claimType) qb.andWhere('c."ClaimType" = :claimType', { claimType: q.claimType });
+    if (policies.length) qb.andWhere('c."PolicyNumber" IN (:...policies)', { policies });
+    if (policyEffectiveYears) qb.andWhere(yearCondition('pol', 'EffectiveDate', policyEffectiveYears));
+    if (q.search) {
+      qb.andWhere(
+        '(pol."SubscriberName" ILIKE :s OR c."PolicyNumber" ILIKE :s OR c."ClaimNumber" ILIKE :s)',
+        { s: `%${q.search}%` },
+      );
     }
 
-    return qb.getRawMany();
+    const total = await qb.getCount();
+    const totalPages = Math.ceil(total / pageSize);
+    const records = await qb
+      .orderBy('c."ClaimDate"', 'ASC')
+      .offset((page - 1) * pageSize)
+      .limit(pageSize)
+      .getRawMany();
+
+    return { total, page, pageSize, totalPages, records };
   }
 
   async getByProduct(q: ClaimQueryParams) {

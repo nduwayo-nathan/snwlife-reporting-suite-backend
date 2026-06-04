@@ -17,7 +17,7 @@ export class ProposalsService {
   async getYears(): Promise<number[]> {
     const rows = await this.proposalRepo
       .createQueryBuilder('p')
-      .select('DISTINCT EXTRACT(YEAR FROM p."Created"::timestamp)::int', 'year')
+      .select('DISTINCT EXTRACT(YEAR FROM p."Created"::date)::int', 'year')
       .where('p."Created" IS NOT NULL')
       .orderBy('year', 'ASC')
       .getRawMany();
@@ -29,7 +29,7 @@ export class ProposalsService {
 
     const qb = this.proposalRepo
       .createQueryBuilder('p')
-      .select('EXTRACT(MONTH FROM p."Created"::timestamp)::int', 'month')
+      .select('EXTRACT(MONTH FROM p."Created"::date)::int', 'month')
       .addSelect('COUNT(p."ID")', 'count')
       .addSelect('SUM(p."PremiumAmount")', 'totalAmount')
       .where(yearCondition('p', 'Created', years))
@@ -50,13 +50,14 @@ export class ProposalsService {
 
   async getRecords(q: ProposalQueryParams) {
     const years = resolveYears(q);
+    const page = q.page ? +q.page : 1;
+    const pageSize = q.pageSize ? +q.pageSize : 20;
 
     const qb = this.proposalRepo
       .createQueryBuilder('p')
       .where(yearCondition('p', 'Created', years));
 
-    if (q.product)
-      qb.andWhere('p."ProductType" = :product', { product: q.product });
+    if (q.product) qb.andWhere('p."ProductType" = :product', { product: q.product });
     if (q.status) qb.andWhere('p."Status" = :status', { status: q.status });
     if (q.search) {
       qb.andWhere(
@@ -65,7 +66,15 @@ export class ProposalsService {
       );
     }
 
-    return qb.getMany();
+    const total = await qb.getCount();
+    const totalPages = Math.ceil(total / pageSize);
+    const records = await qb
+      .orderBy('p."Created"', 'ASC')
+      .offset((page - 1) * pageSize)
+      .limit(pageSize)
+      .getMany();
+
+    return { total, page, pageSize, totalPages, records };
   }
 
   async getByProduct(q: ProposalQueryParams) {

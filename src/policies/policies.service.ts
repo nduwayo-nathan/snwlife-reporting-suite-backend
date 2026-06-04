@@ -20,7 +20,7 @@ export class PoliciesService {
   async getYears(): Promise<number[]> {
     const rows = await this.policyRepo
       .createQueryBuilder('p')
-      .select('DISTINCT EXTRACT(YEAR FROM p."EffectiveDate")::int', 'year')
+      .select('DISTINCT EXTRACT(YEAR FROM p."EffectiveDate"::date)::int', 'year')
       .where('p."EffectiveDate" IS NOT NULL')
       .orderBy('year', 'ASC')
       .getRawMany();

@@ -22,7 +22,7 @@ export class PremiumsService {
   async getYears(): Promise<number[]> {
     const rows = await this.premiumRepo
       .createQueryBuilder('p')
-      .select('DISTINCT EXTRACT(YEAR FROM p."PaymentDate")::int', 'year')
+      .select('DISTINCT EXTRACT(YEAR FROM p."PaymentDate"::date)::int', 'year')
       .where('p."PaymentDate" IS NOT NULL')
       .orderBy('year', 'ASC')
       .getRawMany();
@@ -36,7 +36,7 @@ export class PremiumsService {
 
     const qb = this.premiumRepo
       .createQueryBuilder('p')
-      .select('EXTRACT(MONTH FROM p."PaymentDate")::int', 'month')
+      .select('EXTRACT(MONTH FROM p."PaymentDate"::date)::int', 'month')
       .addSelect('SUM(p."PremiumPaid")', 'value')
       .addSelect('COUNT(DISTINCT p."PolicyNumber")', 'policies')
       .where('p."PaymentDate" IS NOT NULL')
@@ -55,7 +55,7 @@ export class PremiumsService {
     // effective count per month
     const policyQb = this.policyRepo
       .createQueryBuilder('pol')
-      .select('EXTRACT(MONTH FROM pol."EffectiveDate")::int', 'month')
+      .select('EXTRACT(MONTH FROM pol."EffectiveDate"::date)::int', 'month')
       .addSelect('COUNT(DISTINCT pol."PolicyNumber")', 'effective')
       .where('pol."EffectiveDate" IS NOT NULL')
       .andWhere(yearCondition('pol', 'EffectiveDate', years))
@@ -78,8 +78,9 @@ export class PremiumsService {
 
   async getRecords(q: PremiumQueryParams) {
     const years = resolveYears(q);
-    const dateField = q.dateMode === 'effective' ? 'EffectDate' : 'PaymentDate';
     const policies = q.policies?.split(',').filter(Boolean) ?? [];
+    const page = q.page ? +q.page : 1;
+    const pageSize = q.pageSize ? +q.pageSize : 20;
 
     const qb = this.premiumRepo
       .createQueryBuilder('p')
@@ -99,16 +100,35 @@ export class PremiumsService {
         'p."AgencyCode" as "AgencyCode"',
         'p."AgencyName" as "AgencyName"',
       ])
-      .where('p."PaymentDate" IS NOT NULL')
-      .andWhere(yearCondition('p', dateField, years));
+      .where('p."PaymentDate" IS NOT NULL');
 
-    if (q.product)
-      qb.andWhere('p."ProductCode" = :product', { product: q.product });
+    if (q.dateMode === 'effective') {
+      // filter by policy contract EffectiveDate
+      qb.andWhere(yearCondition('pol', 'EffectiveDate', years));
+    } else {
+      // filter by premium PaymentDate
+      qb.andWhere(yearCondition('p', 'PaymentDate', years));
+    }
+
+    if (q.product) qb.andWhere('p."ProductCode" = :product', { product: q.product });
     if (q.state) qb.andWhere('p."State" = :state', { state: q.state });
-    if (policies.length)
-      qb.andWhere('p."PolicyNumber" IN (:...policies)', { policies });
+    if (policies.length) qb.andWhere('p."PolicyNumber" IN (:...policies)', { policies });
+    if (q.search) {
+      qb.andWhere(
+        '(pol."SubscriberName" ILIKE :s OR p."PolicyNumber" ILIKE :s OR p."Receipt" ILIKE :s)',
+        { s: `%${q.search}%` },
+      );
+    }
 
-    return qb.getRawMany();
+    const total = await qb.getCount();
+    const totalPages = Math.ceil(total / pageSize);
+    const records = await qb
+      .orderBy('p."PaymentDate"', 'ASC')
+      .offset((page - 1) * pageSize)
+      .limit(pageSize)
+      .getRawMany();
+
+    return { total, page, pageSize, totalPages, records };
   }
 
   async getByProduct(q: PremiumQueryParams) {
