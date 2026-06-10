@@ -59,12 +59,12 @@ export class PremiumsService {
     const qb = this.premiumRepo
       .createQueryBuilder('p')
       .select('p."State"', 'state')
-      .addSelect('COUNT(DISTINCT p."PolicyNumber")', 'count')
+      .addSelect('COUNT(DISTINCT (p."PolicyNumber", p."State"))', 'count')
       .where('p."PaymentDate" IS NOT NULL')
       .andWhere('p."State" IS NOT NULL')
       .andWhere(yearCondition('p', dateField, years))
       .groupBy('p."State"')
-      .orderBy('COUNT(DISTINCT p."PolicyNumber")', 'DESC');
+      .orderBy('COUNT(DISTINCT (p."PolicyNumber", p."State"))', 'DESC');
 
     if (months) qb.andWhere(monthCondition('p', 'PaymentDate', months));
     if (q.product) qb.andWhere('p."Product" = :product', { product: q.product });

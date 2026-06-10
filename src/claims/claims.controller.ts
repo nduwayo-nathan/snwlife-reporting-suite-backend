@@ -11,6 +11,11 @@ export class ClaimsController {
     return this.service.getYears();
   }
 
+  @Get('policy-years')
+  getPolicyYears(@Query() q: ClaimQueryParams) {
+    return this.service.getPolicyYears(q);
+  }
+
   @Get('monthly-summary')
   getMonthlySummary(@Query() q: ClaimQueryParams) {
     return this.service.getMonthlySummary(q);

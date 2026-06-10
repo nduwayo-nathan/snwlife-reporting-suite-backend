@@ -11,6 +11,8 @@ import {
   resolveYears,
   yearCondition,
   getInstallmentNo,
+  resolveMonths,
+  monthCondition,
 } from '../share/helpers/date-filter.helper';
 import { BaseQueryParams } from '../share/dto/base-query-params.dto';
 
@@ -29,6 +31,27 @@ export class ClaimsService {
       .orderBy('year', 'ASC')
       .getRawMany();
     return rows.map((r) => r.year);
+  }
+
+  async getPolicyYears(q: ClaimQueryParams): Promise<number[]> {
+    const years = resolveYears(q);
+    const policies = q.policies?.split(',').filter(Boolean) ?? [];
+
+    const qb = this.claimRepo
+      .createQueryBuilder('c')
+      .innerJoin(Policy, 'pol', 'pol.policy_number = c."PolicyNumber"')
+      .select('DISTINCT EXTRACT(YEAR FROM pol.effective_date::date)::int', 'year')
+      .where(yearCondition('c', 'ClaimDate', years))
+      .andWhere('pol.effective_date IS NOT NULL')
+      .orderBy('year', 'ASC');
+
+    if (q.product) qb.andWhere('c."Product" = :product', { product: q.product });
+    if (q.status) qb.andWhere('c."ClaimStatus" = :status', { status: q.status });
+    if (q.claimType) qb.andWhere('c."ClaimType" = :claimType', { claimType: q.claimType });
+    if (policies.length) qb.andWhere('c."PolicyNumber" IN (:...policies)', { policies });
+
+    const rows = await qb.getRawMany();
+    return rows.map((r) => r.year).filter((y) => y != null);
   }
 
   async getMonthlySummary(q: ClaimQueryParams) {
@@ -56,6 +79,7 @@ export class ClaimsService {
   async getRecords(q: ClaimQueryParams) {
     const years = resolveYears(q);
     const policies = q.policies?.split(',').filter(Boolean) ?? [];
+    const months = resolveMonths(q);
     const policyEffectiveYears = this.resolvePolicyEffectiveYears(q);
     const page = q.page ? +q.page : 1;
     const pageSize = q.pageSize ? +q.pageSize : 10;
@@ -78,7 +102,8 @@ export class ClaimsService {
         'c."PaymentDate" as "PaymentDate"',
         'pol.effective_date as "EffectiveDate"',
       ])
-      .where(yearCondition('c', 'ClaimDate', years));
+      .where(yearCondition('c', 'ClaimDate', years))
+      .andWhere(monthCondition('c', 'ClaimDate', months));
 
     if (q.product) qb.andWhere('c."Product" = :product', { product: q.product });
     if (q.status) qb.andWhere('c."ClaimStatus" = :status', { status: q.status });
@@ -99,6 +124,8 @@ export class ClaimsService {
       .offset((page - 1) * pageSize)
       .limit(pageSize)
       .getRawMany();
+
+    console.log(`[Claim-Details API] Retrieved ${records.length} records (page ${page}/${totalPages}, total: ${total})`);
 
     return { total, page, pageSize, totalPages, records };
   }
@@ -224,6 +251,8 @@ export class ClaimsService {
   async getList(q: ClaimListQueryParams) {
     const years = resolveYears(q);
     const policies = q.policies?.split(',').filter(Boolean) ?? [];
+    const months = resolveMonths(q);
+    const policyEffectiveYears = this.resolvePolicyEffectiveYears(q);
     const page = q.page ? +q.page : 1;
     const pageSize = q.pageSize ? +q.pageSize : 10;
 
@@ -244,11 +273,14 @@ export class ClaimsService {
         'c."PaymentDate" as "PaymentDate"',
         'pol.effective_date as "EffectiveDate"',
       ])
-      .where(yearCondition('c', 'ClaimDate', years));
+      .where(yearCondition('c', 'ClaimDate', years))
+      .andWhere(monthCondition('c', 'ClaimDate', months));
 
     if (q.product) qb.andWhere('c."Product" = :product', { product: q.product });
     if (q.status) qb.andWhere('c."ClaimStatus" = :status', { status: q.status });
+    if (q.claimType) qb.andWhere('c."ClaimType" = :claimType', { claimType: q.claimType });
     if (policies.length) qb.andWhere('c."PolicyNumber" IN (:...policies)', { policies });
+    if (policyEffectiveYears) qb.andWhere(yearCondition('pol', 'effective_date', policyEffectiveYears));
     if (q.search) {
       qb.andWhere(
         '(pol.subscriber_name ILIKE :s OR c."PolicyNumber" ILIKE :s OR c."ClaimNumber" ILIKE :s)',
@@ -263,6 +295,8 @@ export class ClaimsService {
       .offset((page - 1) * pageSize)
       .limit(pageSize)
       .getRawMany();
+
+    console.log(`[Claim-Policies API] Retrieved ${records.length} records (page ${page}/${totalPages}, total: ${total})`);
 
     return { total, page, pageSize, totalPages, records };
   }

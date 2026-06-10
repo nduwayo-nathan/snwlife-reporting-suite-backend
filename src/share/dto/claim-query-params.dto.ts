@@ -19,6 +19,10 @@ export class ClaimQueryParams extends BaseQueryParams {
   policies?: string;
 
   @IsOptional()
+  @IsString()
+  months?: string;
+
+  @IsOptional()
   @IsIn(['single', 'range', 'multi'])
   policyEffectiveFilterMode?: 'single' | 'range' | 'multi';
 

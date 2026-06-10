@@ -59,10 +59,20 @@ export class InstallmentsService {
       paymentDay: r.paymentDay ? Math.round(+r.paymentDay) : null,
     }));
 
-    // For single year + effective mode, fill 1-12
+    // For single year + effective mode, include negative installments and fill 1-12
     if (q.filterMode === 'single' && q.dateMode === 'effective') {
       const existing = new Map(result.map((r) => [r.installmentNo, r]));
+      const minInstallment = Math.min(0, ...result.map(r => r.installmentNo));
       const complete: { installmentNo: number; totalPremium: number; count: number; paymentDay: number | null }[] = [];
+      
+      // Add negative installments (payments before effective date)
+      for (let i = minInstallment; i <= 0; i++) {
+        if (existing.has(i)) {
+          complete.push(existing.get(i)!);
+        }
+      }
+      
+      // Add installments 1-12
       for (let i = 1; i <= 12; i++) {
         complete.push(existing.get(i) ?? { installmentNo: i, totalPremium: 0, count: 0, paymentDay: null });
       }
@@ -117,10 +127,20 @@ export class InstallmentsService {
       count: +r.count,
     }));
 
-    // For single year + effective mode, fill 1-12
+    // For single year + effective mode, include negative installments and fill 1-12
     if (q.filterMode === 'single' && q.dateMode === 'effective') {
       const existing = new Map(result.map((r) => [r.installmentNo, r]));
+      const minInstallment = Math.min(0, ...result.map(r => r.installmentNo));
       const complete: { installmentNo: number; policies: string[]; count: number }[] = [];
+      
+      // Add negative installments (payments before effective date)
+      for (let i = minInstallment; i <= 0; i++) {
+        if (existing.has(i)) {
+          complete.push(existing.get(i)!);
+        }
+      }
+      
+      // Add installments 1-12
       for (let i = 1; i <= 12; i++) {
         complete.push(existing.get(i) ?? { installmentNo: i, policies: [], count: 0 });
       }
@@ -188,7 +208,7 @@ export class InstallmentsService {
       .createQueryBuilder('p')
       .innerJoin(Policy, 'pol', 'pol.policy_number = p."PolicyNumber"')
       .select('p."State"', 'state')
-      .addSelect('SUM(p."PremiumPaid")', 'count')
+      .addSelect('COUNT(DISTINCT (p."PolicyNumber", p."State"))', 'count')
       .where('p."PaymentDate" IS NOT NULL')
       .andWhere('pol.effective_date IS NOT NULL')
       .andWhere('p."State" IS NOT NULL');
@@ -205,7 +225,7 @@ export class InstallmentsService {
       qb.andWhere(`${installmentExpr} IN (:...installments)`, { installments });
     }
 
-    qb.groupBy('p."State"').orderBy('SUM(p."PremiumPaid")', 'DESC');
+    qb.groupBy('p."State"').orderBy('COUNT(DISTINCT (p."PolicyNumber", p."State"))', 'DESC');
 
     const rows = await qb.getRawMany();
     return rows.map((r) => ({ state: r.state, count: +r.count }));
