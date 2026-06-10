@@ -4,11 +4,7 @@ import { Repository } from 'typeorm';
 import { Policy } from '../entities/policy.entity';
 import { Premium } from '../entities/premium.entity';
 import { PolicyQueryParams } from '../share/dto/policy-query-params.dto';
-import {
-  resolveYears,
-  yearCondition,
-  getInstallmentNo,
-} from '../share/helpers/date-filter.helper';
+import { resolveYears, yearCondition, getInstallmentNo, resolveMonths, monthCondition } from '../share/helpers/date-filter.helper';
 
 @Injectable()
 export class PoliciesService {
@@ -20,151 +16,222 @@ export class PoliciesService {
   async getYears(): Promise<number[]> {
     const rows = await this.policyRepo
       .createQueryBuilder('p')
-      .select('DISTINCT EXTRACT(YEAR FROM p."EffectiveDate"::date)::int', 'year')
-      .where('p."EffectiveDate" IS NOT NULL')
+      .select('DISTINCT EXTRACT(YEAR FROM p.effective_date)::int', 'year')
+      .where('p.effective_date IS NOT NULL')
       .orderBy('year', 'ASC')
       .getRawMany();
     return rows.map((r) => r.year);
   }
 
   async getPolicies(q: PolicyQueryParams) {
-    const years = resolveYears(q);
-    const dateField =
-      q.dateMode === 'payment' ? 'LastPaymentDate' : 'EffectiveDate';
-    const installments =
-      q.installment?.split(',').map(Number).filter(Boolean) ?? [];
+    const years = resolveYears(q) ?? [new Date().getFullYear()];
+    const months = resolveMonths(q);
+    const installments = q.installments?.split(',').map(Number).filter(Boolean) ?? [];
+    const page = q.page ? +q.page : 1;
+    const pageSize = q.pageSize ? +q.pageSize : 500;
 
     const qb = this.policyRepo
       .createQueryBuilder('p')
       .select([
-        'p."PolicyNumber" as "PolicyNumber"',
-        'p."SubscriberNumber" as "SubscriberNumber"',
-        'p."SubscriberName" as "SubscriberName"',
-        'p."ProductCode" as "ProductCode"',
-        'p."ProductName" as "ProductName"',
-        'p."AgentCode" as "AgentCode"',
-        'p."AgentName" as "AgentName"',
-        'p."EffectiveDate" as "EffectiveDate"',
-        'p."ExpiryDate" as "ExpiryDate"',
-        'p."Premium" as "Premium"',
-        'p."TotalPremiumPaid" as "TotalPremiumPaid"',
-        'p."Status" as "Status"',
-        'p."ContractDuration" as "ContractDuration"',
-      ])
-      .where(yearCondition('p', dateField, years));
+        'p.policy_number as "PolicyNumber"',
+        'p.subscriber_number as "SubscriberNumber"',
+        'p.subscriber_name as "SubscriberName"',
+        'p.product_code as "ProductCode"',
+        'p.product_name as "ProductName"',
+        'p.agent_code as "AgentCode"',
+        'p.agent_name as "AgentName"',
+        'p.effective_date as "EffectiveDate"',
+        'p.expiry_date as "ExpiryDate"',
+        'p.premium as "Premium"',
+        'p.total_premium_paid as "TotalPremiumPaid"',
+        'p.total_pure_premium as "TotalPurePremium"',
+        'p.sum_assured as "SumAssured"',
+        'p.status as "Status"',
+        'p.status_date as "StatusDate"',
+        'p.contract_duration as "ContractDuration"',
+        'p.last_payment_date as "LastPaymentDate"',
+        'p.date_lapsed as "DateLapsed"',
+        'p.date_paid_up as "DatePaidUp"',
+      ]);
 
-    if (q.product)
-      qb.andWhere('p."ProductCode" = :product', { product: q.product });
-    if (q.state) {
+    // Apply year filter based on dateMode
+    if (q.dateMode === 'effective') {
+      // For effective mode: policies that became effective AND paid premiums in the year(s)
+      const subquery = this.premiumRepo
+        .createQueryBuilder('pr')
+        .select('pr."PolicyNumber"')
+        .where('pr."PaymentDate" IS NOT NULL')
+        .andWhere(yearCondition('pr', 'PaymentDate', years));
+      
+      if (months) subquery.andWhere(monthCondition('pr', 'PaymentDate', months));
+      
+      qb.where(yearCondition('p', 'effective_date', years))
+        .andWhere(`p.policy_number IN (${subquery.getQuery()})`);
+    } else {
+      // For payment mode: filter by policies that have premium payments in the year(s)
+      const subquery = this.premiumRepo
+        .createQueryBuilder('pr')
+        .select('pr."PolicyNumber"')
+        .where('pr."PaymentDate" IS NOT NULL')
+        .andWhere(yearCondition('pr', 'PaymentDate', years));
+      
+      if (months) subquery.andWhere(monthCondition('pr', 'PaymentDate', months));
+      
+      qb.where(`p.policy_number IN (${subquery.getQuery()})`);
+    }
+
+    if (q.product) qb.andWhere('p.product_code = :product', { product: q.product });
+    if (q.state) qb.andWhere('p.state = :state', { state: q.state });
+    if (q.search) {
       qb.andWhere(
-        `EXISTS (SELECT 1 FROM premiums pr WHERE pr."PolicyNumber" = p."PolicyNumber" AND pr."State" = :state)`,
-        { state: q.state },
+        '(p.subscriber_name ILIKE :s OR p.policy_number ILIKE :s)',
+        { s: `%${q.search}%` },
       );
     }
 
-    const policies = await qb.getRawMany();
+    const total = await qb.getCount();
+    const totalPages = Math.ceil(total / pageSize);
+    const policies = await qb
+      .orderBy('p.total_premium_paid', 'DESC')
+      .offset((page - 1) * pageSize)
+      .limit(pageSize)
+      .getRawMany();
 
-    if (!installments.length) return policies;
+    if (!installments.length) {
+      console.log(`✅ [Policies API] Retrieved ${policies.length} records (page ${page}/${totalPages}, total: ${total})`);
+      return { total, page, pageSize, totalPages, records: policies };
+    }
 
-    // filter by installment: only keep policies that have a premium paid on given installment(s)
+    // filter by installment: need to get all policies for filtering
+    const allPolicies = await this.policyRepo
+      .createQueryBuilder('p')
+      .select([
+        'p.policy_number as "PolicyNumber"',
+        'p.subscriber_number as "SubscriberNumber"',
+        'p.subscriber_name as "SubscriberName"',
+        'p.product_code as "ProductCode"',
+        'p.product_name as "ProductName"',
+        'p.agent_code as "AgentCode"',
+        'p.agent_name as "AgentName"',
+        'p.effective_date as "EffectiveDate"',
+        'p.expiry_date as "ExpiryDate"',
+        'p.premium as "Premium"',
+        'p.total_premium_paid as "TotalPremiumPaid"',
+        'p.total_pure_premium as "TotalPurePremium"',
+        'p.sum_assured as "SumAssured"',
+        'p.status as "Status"',
+        'p.status_date as "StatusDate"',
+        'p.contract_duration as "ContractDuration"',
+        'p.last_payment_date as "LastPaymentDate"',
+        'p.date_lapsed as "DateLapsed"',
+        'p.date_paid_up as "DatePaidUp"',
+      ])
+      .where(yearCondition('p', 'effective_date', years))
+      .andWhere(q.product ? 'p.product_code = :product' : '1=1', { product: q.product })
+      .andWhere(q.search ? '(p.subscriber_name ILIKE :s OR p.policy_number ILIKE :s)' : '1=1', { s: `%${q.search}%` })
+      .orderBy('p.total_premium_paid', 'DESC')
+      .getRawMany();
+
     const premiums = await this.premiumRepo
       .createQueryBuilder('pr')
-      .select(['pr."PolicyNumber"', 'pr."PaymentDate"'])
+      .select(['"pr"."PolicyNumber"', '"pr"."PaymentDate"'])
       .where('pr."PaymentDate" IS NOT NULL')
       .getRawMany();
 
-    const policyMap = new Map(policies.map((p) => [p.PolicyNumber, p]));
+    const policyMap = new Map(allPolicies.map((p) => [p.PolicyNumber, p]));
     const matching = new Set<string>();
 
     premiums.forEach((pr) => {
       const policy = policyMap.get(pr.PolicyNumber);
       if (!policy) return;
       const no = getInstallmentNo(policy.EffectiveDate, pr.PaymentDate);
-      if (no !== null && installments.includes(no))
-        matching.add(pr.PolicyNumber);
+      if (no !== null && installments.includes(no)) matching.add(pr.PolicyNumber);
     });
 
-    return policies.filter((p) => matching.has(p.PolicyNumber));
+    const filtered = allPolicies.filter((p) => matching.has(p.PolicyNumber));
+    const filteredTotal = filtered.length;
+    const filteredPages = Math.ceil(filteredTotal / pageSize);
+    const paginatedFiltered = filtered.slice((page - 1) * pageSize, page * pageSize);
+    console.log(`✅ [Policies API] Retrieved ${paginatedFiltered.length} records (page ${page}/${filteredPages}, total: ${filteredTotal})`);
+    return { total: filteredTotal, page, pageSize, totalPages: filteredPages, records: paginatedFiltered };
   }
 
+  // Returns premium totals grouped by installment number — matches frontend getPremiumByInstallment()
   async getInstallments(q: PolicyQueryParams) {
     const years = resolveYears(q);
     const dateField = q.dateMode === 'payment' ? 'PaymentDate' : 'EffectDate';
-    const policies = q.installment?.split(',').filter(Boolean) ?? [];
+    const policyNums = q.policies?.split(',').filter(Boolean) ?? [];
 
-    const prQb = this.premiumRepo
+    const qb = this.premiumRepo
       .createQueryBuilder('pr')
-      .innerJoin(Policy, 'pol', 'pol."PolicyNumber" = pr."PolicyNumber"')
-      .select(['pr."PolicyNumber"', 'pr."PaymentDate"', 'pol."EffectiveDate"'])
+      .innerJoin(Policy, 'pol', 'pol.policy_number = pr."PolicyNumber"')
+      .select([
+        '"pr"."PolicyNumber"',
+        '"pr"."PaymentDate"',
+        '"pr"."PremiumPaid"',
+        'pol.effective_date as "EffectiveDate"',
+      ])
       .where('pr."PaymentDate" IS NOT NULL')
       .andWhere(yearCondition('pr', dateField, years));
 
-    if (q.product)
-      prQb.andWhere('pol."ProductCode" = :product', { product: q.product });
-    if (q.state) prQb.andWhere('pr."State" = :state', { state: q.state });
-    if (policies.length)
-      prQb.andWhere('pr."PolicyNumber" IN (:...policies)', { policies });
+    if (q.product) qb.andWhere('pol.product_code = :product', { product: q.product });
+    if (policyNums.length) qb.andWhere('pr."PolicyNumber" IN (:...policyNums)', { policyNums });
 
-    const rows = await prQb.getRawMany();
+    const rows = await qb.getRawMany();
+    const grouped = new Map<number, { totalPremium: number; count: number; policySet: Set<string>; days: number[] }>();
 
-    const grouped = new Map<
-      number,
-      { totalPremium: number; count: number; policySet: Set<string> }
-    >();
     rows.forEach((r) => {
       const no = getInstallmentNo(r.EffectiveDate, r.PaymentDate);
       if (no === null) return;
-      const entry = grouped.get(no) ?? {
-        totalPremium: 0,
-        count: 0,
-        policySet: new Set(),
-      };
+      const entry = grouped.get(no) ?? { totalPremium: 0, count: 0, policySet: new Set(), days: [] };
       entry.totalPremium += +r.PremiumPaid || 0;
       entry.count += 1;
       entry.policySet.add(r.PolicyNumber);
+      entry.days.push(new Date(r.PaymentDate).getDate());
       grouped.set(no, entry);
     });
 
-    // get premiums with amounts for totals
-    const prWithAmounts = await this.premiumRepo
-      .createQueryBuilder('pr')
-      .innerJoin(Policy, 'pol', 'pol."PolicyNumber" = pr."PolicyNumber"')
-      .select([
-        'pr."PolicyNumber"',
-        'pr."PaymentDate"',
-        'pr."PremiumPaid"',
-        'pol."EffectiveDate"',
-      ])
-      .where('pr."PaymentDate" IS NOT NULL')
-      .andWhere(yearCondition('pr', dateField, years))
-      .getRawMany();
+    return Array.from(grouped.entries())
+      .map(([installmentNo, { totalPremium, count, policySet, days }]) => {
+        const freq = new Map<number, number>();
+        days.forEach((d) => freq.set(d, (freq.get(d) ?? 0) + 1));
+        const paymentDay = days.length ? [...freq.entries()].sort((a, b) => b[1] - a[1])[0][0] : null;
+        return { installmentNo, totalPremium, count, policyCount: policySet.size, paymentDay };
+      })
+      .sort((a, b) => a.installmentNo - b.installmentNo);
+  }
 
-    const groupedFull = new Map<
-      number,
-      { totalPremium: number; count: number; policySet: Set<string> }
-    >();
-    prWithAmounts.forEach((r) => {
-      if (policies.length && !policies.includes(r.PolicyNumber)) return;
-      if (q.product) return; // handled in query
+  // Returns policy counts grouped by installment number — matches frontend getPoliciesByInstallment()
+  async getPoliciesByInstallment(q: PolicyQueryParams) {
+    const years = resolveYears(q);
+    const dateField = q.dateMode === 'payment' ? 'PaymentDate' : 'EffectDate';
+    const policyNums = q.policies?.split(',').filter(Boolean) ?? [];
+
+    const qb = this.premiumRepo
+      .createQueryBuilder('pr')
+      .innerJoin(Policy, 'pol', 'pol.policy_number = pr."PolicyNumber"')
+      .select(['"pr"."PolicyNumber"', '"pr"."PaymentDate"', 'pol.effective_date as "EffectiveDate"'])
+      .where('pr."PaymentDate" IS NOT NULL')
+      .andWhere(yearCondition('pr', dateField, years));
+
+    if (q.product) qb.andWhere('pol.product_code = :product', { product: q.product });
+    if (policyNums.length) qb.andWhere('pr."PolicyNumber" IN (:...policyNums)', { policyNums });
+
+    const rows = await qb.getRawMany();
+    const grouped = new Map<number, Set<string>>();
+
+    rows.forEach((r) => {
       const no = getInstallmentNo(r.EffectiveDate, r.PaymentDate);
       if (no === null) return;
-      const entry = groupedFull.get(no) ?? {
-        totalPremium: 0,
-        count: 0,
-        policySet: new Set(),
-      };
-      entry.totalPremium += +r.PremiumPaid;
-      entry.count += 1;
-      entry.policySet.add(r.PolicyNumber);
-      groupedFull.set(no, entry);
+      if (!grouped.has(no)) grouped.set(no, new Set());
+      grouped.get(no)!.add(r.PolicyNumber);
     });
 
-    return Array.from(groupedFull.entries())
-      .map(([installmentNo, { totalPremium, count, policySet }]) => ({
+    return Array.from(grouped.entries())
+      .map(([installmentNo, policySet]) => ({
         installmentNo,
-        totalPremium,
-        count,
-        policyCount: policySet.size,
+        policies: Array.from(policySet),
+        count: policySet.size,
       }))
       .sort((a, b) => a.installmentNo - b.installmentNo);
   }

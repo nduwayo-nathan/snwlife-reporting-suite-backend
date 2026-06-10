@@ -51,7 +51,7 @@ export class ProposalsService {
   async getRecords(q: ProposalQueryParams) {
     const years = resolveYears(q);
     const page = q.page ? +q.page : 1;
-    const pageSize = q.pageSize ? +q.pageSize : 20;
+    const pageSize = q.pageSize ? +q.pageSize : 10;
 
     const qb = this.proposalRepo
       .createQueryBuilder('p')

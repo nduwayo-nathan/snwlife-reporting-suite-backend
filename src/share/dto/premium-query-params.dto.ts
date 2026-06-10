@@ -29,6 +29,14 @@ export class PremiumQueryParams extends BaseQueryParams {
   @IsOptional()
   @IsString()
   search?: string;
+
+  @IsOptional()
+  @IsString()
+  months?: string; // comma-separated month numbers e.g. "1,3,5"
+
+  @IsOptional()
+  @IsString()
+  installments?: string; // comma-separated installment numbers e.g. "1,2,3"
 }
 
 export class PremiumListQueryParams extends PremiumQueryParams {}

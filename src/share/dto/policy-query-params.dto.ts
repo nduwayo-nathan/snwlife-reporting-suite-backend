@@ -1,4 +1,4 @@
-import { IsOptional, IsIn, IsString } from 'class-validator';
+import { IsOptional, IsIn, IsString, IsNumberString } from 'class-validator';
 import { BaseQueryParams } from './base-query-params.dto';
 
 export class PolicyQueryParams extends BaseQueryParams {
@@ -16,9 +16,25 @@ export class PolicyQueryParams extends BaseQueryParams {
 
   @IsOptional()
   @IsString()
-  installment?: string;
+  months?: string;
+
+  @IsOptional()
+  @IsString()
+  installments?: string;
 
   @IsOptional()
   @IsString()
   policies?: string;
+
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  @IsOptional()
+  @IsNumberString()
+  page?: string;
+
+  @IsOptional()
+  @IsNumberString()
+  pageSize?: string;
 }
