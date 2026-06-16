@@ -6,6 +6,11 @@ import { PolicyQueryParams } from '../share/dto/policy-query-params.dto';
 export class PoliciesController {
   constructor(private readonly service: PoliciesService) {}
 
+  @Get('policies-list')
+  getPoliciesList(@Query() q: PolicyQueryParams) {
+    return this.service.getPolicies(q);
+  }
+
   @Get('years')
   getYears() {
     return this.service.getYears();

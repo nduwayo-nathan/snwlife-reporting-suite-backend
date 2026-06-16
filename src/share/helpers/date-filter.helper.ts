@@ -31,6 +31,19 @@ export function resolveMonths(q: { months?: string }): number[] | null {
   return parsed.length ? parsed : null;
 }
 
+export function resolveInstallments(q: { installments?: string }): number[] | null {
+  if (!q.installments) return null;
+  const parsed = q.installments.split(',').map(Number);
+  return parsed.length ? parsed : null;
+}
+
+export function installmentCondition(alias: string, effectiveDateField: string, targetDateField: string, installments: number[] | null): string {
+  if (!installments || installments.length === 0) return '1=1';
+  // This would need custom SQL logic to calculate installment number inline
+  // For now, return a placeholder that always matches (filtering will happen in code)
+  return '1=1';
+}
+
 export function getInstallmentNo(effectiveDate: string, targetDate: string): number | null {
   if (!effectiveDate || !targetDate) return null;
   const start = new Date(effectiveDate);

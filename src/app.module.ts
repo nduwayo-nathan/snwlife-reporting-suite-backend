@@ -10,6 +10,7 @@ import { PoliciesModule } from './policies/policies.module';
 import { ClaimsModule } from './claims/claims.module';
 import { ProposalsModule } from './proposals/proposals.module';
 import { InstallmentsModule } from './installments/installments.module';
+import { LapsationModule } from './lapsation/lapsation.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { InstallmentsModule } from './installments/installments.module';
     ClaimsModule,
     ProposalsModule,
     InstallmentsModule,
+    LapsationModule,
   ],
 })
 export class AppModule {}

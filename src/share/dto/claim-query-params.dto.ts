@@ -1,7 +1,7 @@
 import { IsOptional, IsIn, IsNumberString, IsString } from 'class-validator';
 import { BaseQueryParams } from './base-query-params.dto';
 
-export class ClaimQueryParams extends BaseQueryParams {
+export class ClaimBaseQueryParams extends BaseQueryParams {
   @IsOptional()
   @IsString()
   product?: string;
@@ -17,10 +17,6 @@ export class ClaimQueryParams extends BaseQueryParams {
   @IsOptional()
   @IsString()
   policies?: string;
-
-  @IsOptional()
-  @IsString()
-  months?: string;
 
   @IsOptional()
   @IsIn(['single', 'range', 'multi'])
@@ -55,4 +51,14 @@ export class ClaimQueryParams extends BaseQueryParams {
   search?: string;
 }
 
-export class ClaimListQueryParams extends ClaimQueryParams {}
+export class ClaimPaymentQueryParams extends ClaimBaseQueryParams {
+  @IsOptional()
+  @IsString()
+  months?: string;
+}
+
+export class ClaimInstallmentQueryParams extends ClaimBaseQueryParams {
+  @IsOptional()
+  @IsString()
+  installments?: string;
+}

@@ -6,37 +6,37 @@ import { PremiumQueryParams } from '../share/dto/premium-query-params.dto';
 export class InstallmentsController {
   constructor(private readonly service: InstallmentsService) {}
 
-  @Get('installments/summary')
+  @Get('premiums-installments/summary')
   getSummary(@Query() q: PremiumQueryParams) {
     return this.service.getSummary(q);
   }
 
-  @Get('installments/policy-trend')
+  @Get('premiums-installments/policy-trend')
   getPolicyTrend(@Query() q: PremiumQueryParams) {
     return this.service.getPolicyTrend(q);
   }
 
-  @Get('installments/product-summary')
+  @Get('premiums-installments/product-summary')
   getProductSummary(@Query() q: PremiumQueryParams) {
     return this.service.getProductSummary(q);
   }
 
-  @Get('installments/state-summary')
+  @Get('premiums-installments/state-summary')
   getStateSummary(@Query() q: PremiumQueryParams) {
     return this.service.getStateSummary(q);
   }
 
-  @Get('installments/cards')
+  @Get('premiums-installments/cards')
   getCards(@Query() q: PremiumQueryParams) {
     return this.service.getCards(q);
   }
 
-  @Get('installments/premiums')
+  @Get('premiums-installments/premiums')
   getPremiums(@Query() q: PremiumQueryParams) {
     return this.service.getPremiums(q);
   }
 
-  @Get('installments/policies')
+  @Get('premiums-installments/policies')
   getPolicies(@Query() q: PremiumQueryParams) {
     return this.service.getPolicies(q);
   }

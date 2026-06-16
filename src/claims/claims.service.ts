@@ -4,14 +4,16 @@ import { Repository } from 'typeorm';
 import { Claim } from '../entities/claim.entity';
 import { Policy } from '../entities/policy.entity';
 import {
-  ClaimQueryParams,
-  ClaimListQueryParams,
+  ClaimBaseQueryParams,
+  ClaimPaymentQueryParams,
+  ClaimInstallmentQueryParams,
 } from '../share/dto/claim-query-params.dto';
 import {
   resolveYears,
   yearCondition,
   getInstallmentNo,
   resolveMonths,
+  resolveInstallments,
   monthCondition,
 } from '../share/helpers/date-filter.helper';
 import { BaseQueryParams } from '../share/dto/base-query-params.dto';
@@ -33,7 +35,7 @@ export class ClaimsService {
     return rows.map((r) => r.year);
   }
 
-  async getPolicyYears(q: ClaimQueryParams): Promise<number[]> {
+  async getPolicyYears(q: ClaimPaymentQueryParams): Promise<number[]> {
     const years = resolveYears(q);
     const policies = q.policies?.split(',').filter(Boolean) ?? [];
 
@@ -54,7 +56,43 @@ export class ClaimsService {
     return rows.map((r) => r.year).filter((y) => y != null);
   }
 
-  async getMonthlySummary(q: ClaimQueryParams) {
+  async getPolicyYearsForInstallment(q: ClaimInstallmentQueryParams): Promise<number[]> {
+    const years = resolveYears(q);
+    const policies = q.policies?.split(',').filter(Boolean) ?? [];
+    const installments = resolveInstallments(q);
+
+    const qb = this.claimRepo
+      .createQueryBuilder('c')
+      .innerJoin(Policy, 'pol', 'pol.policy_number = c."PolicyNumber"')
+      .select('DISTINCT EXTRACT(YEAR FROM pol.effective_date::date)::int', 'year')
+      .where(yearCondition('c', 'ClaimDate', years))
+      .andWhere('pol.effective_date IS NOT NULL')
+      .andWhere('c."ClaimDate" IS NOT NULL')
+      .orderBy('year', 'ASC');
+
+    if (q.product) qb.andWhere('c."Product" = :product', { product: q.product });
+    if (q.status) qb.andWhere('c."ClaimStatus" = :status', { status: q.status });
+    if (q.claimType) qb.andWhere('c."ClaimType" = :claimType', { claimType: q.claimType });
+    if (policies.length) qb.andWhere('c."PolicyNumber" IN (:...policies)', { policies });
+    
+    // Filter by installments if specified
+    if (installments && installments.length > 0) {
+      const monthDiffExpr = `(
+        (EXTRACT(YEAR FROM c."ClaimDate"::date) - EXTRACT(YEAR FROM pol.effective_date::date)) * 12
+        + (EXTRACT(MONTH FROM c."ClaimDate"::date) - EXTRACT(MONTH FROM pol.effective_date::date))
+      )`;
+      const installmentExpr = `CASE 
+        WHEN ${monthDiffExpr} >= 0 THEN ${monthDiffExpr} + 1
+        ELSE ${monthDiffExpr}
+      END`;
+      qb.andWhere(`${installmentExpr} IN (:...installments)`, { installments });
+    }
+
+    const rows = await qb.getRawMany();
+    return rows.map((r) => r.year).filter((y) => y != null);
+  }
+
+  async getMonthlySummary(q: ClaimPaymentQueryParams) {
     const years = resolveYears(q);
     const policies = q.policies?.split(',').filter(Boolean) ?? [];
 
@@ -76,10 +114,11 @@ export class ClaimsService {
     return rows.map((r) => ({ month: r.month, value: +r.value, count: +r.count }));
   }
 
-  async getRecords(q: ClaimQueryParams) {
+  async getRecords(q: ClaimPaymentQueryParams | ClaimInstallmentQueryParams) {
     const years = resolveYears(q);
     const policies = q.policies?.split(',').filter(Boolean) ?? [];
-    const months = resolveMonths(q);
+    const months = 'months' in q ? resolveMonths(q) : null;
+    const installments = 'installments' in q ? resolveInstallments(q) : null;
     const policyEffectiveYears = this.resolvePolicyEffectiveYears(q);
     const page = q.page ? +q.page : 1;
     const pageSize = q.pageSize ? +q.pageSize : 10;
@@ -117,20 +156,26 @@ export class ClaimsService {
       );
     }
 
-    const total = await qb.getCount();
+    let records = await qb.orderBy('c."ClaimDate"', 'ASC').getRawMany();
+
+    // Filter by installments in-memory if needed
+    if (installments && installments.length > 0) {
+      records = records.filter((r) => {
+        const no = getInstallmentNo(r.EffectiveDate, r.ClaimDate);
+        return no !== null && installments.includes(no);
+      });
+    }
+
+    const total = records.length;
     const totalPages = Math.ceil(total / pageSize);
-    const records = await qb
-      .orderBy('c."ClaimDate"', 'ASC')
-      .offset((page - 1) * pageSize)
-      .limit(pageSize)
-      .getRawMany();
+    const paginatedRecords = records.slice((page - 1) * pageSize, page * pageSize);
 
-    console.log(`[Claim-Details API] Retrieved ${records.length} records (page ${page}/${totalPages}, total: ${total})`);
+    console.log(`[Claim-Details API] Retrieved ${paginatedRecords.length} records (page ${page}/${totalPages}, total: ${total})`);
 
-    return { total, page, pageSize, totalPages, records };
+    return { total, page, pageSize, totalPages, records: paginatedRecords };
   }
 
-  async getByProduct(q: ClaimQueryParams) {
+  async getByProduct(q: ClaimBaseQueryParams) {
     const years = resolveYears(q);
     const qb = this.claimRepo
       .createQueryBuilder('c')
@@ -146,7 +191,7 @@ export class ClaimsService {
     return rows.map((r) => ({ product: r.product, total: +r.total }));
   }
 
-  async getByStatus(q: ClaimQueryParams) {
+  async getByStatus(q: ClaimBaseQueryParams) {
     const years = resolveYears(q);
     const qb = this.claimRepo
       .createQueryBuilder('c')
@@ -162,7 +207,7 @@ export class ClaimsService {
     return rows.map((r) => ({ status: r.status, total: +r.total }));
   }
 
-  async getByType(q: ClaimQueryParams) {
+  async getByType(q: ClaimPaymentQueryParams) {
     const years = resolveYears(q);
     const qb = this.claimRepo
       .createQueryBuilder('c')
@@ -178,7 +223,7 @@ export class ClaimsService {
     return rows.map((r) => ({ type: r.type, total: +r.total }));
   }
 
-  async getByInstallment(q: ClaimQueryParams) {
+  async getByInstallment(q: ClaimInstallmentQueryParams) {
     const years = resolveYears(q);
     const policies = q.policies?.split(',').filter(Boolean) ?? [];
 
@@ -221,7 +266,7 @@ export class ClaimsService {
       .sort((a, b) => a.installmentNo - b.installmentNo);
   }
 
-  async getCards(q: ClaimQueryParams) {
+  async getCards(q: ClaimBaseQueryParams) {
     const years = resolveYears(q);
     const policies = q.policies?.split(',').filter(Boolean) ?? [];
     const policyEffectiveYears = this.resolvePolicyEffectiveYears(q);
@@ -248,13 +293,12 @@ export class ClaimsService {
     };
   }
 
-  async getList(q: ClaimListQueryParams) {
+  async getList(q: ClaimPaymentQueryParams | ClaimInstallmentQueryParams) {
     const years = resolveYears(q);
     const policies = q.policies?.split(',').filter(Boolean) ?? [];
-    const months = resolveMonths(q);
-    const policyEffectiveYears = this.resolvePolicyEffectiveYears(q);
+    const months = 'months' in q ? resolveMonths(q) : null;
     const page = q.page ? +q.page : 1;
-    const pageSize = q.pageSize ? +q.pageSize : 10;
+    const pageSize = q.pageSize ? +q.pageSize : 100;
 
     const qb = this.claimRepo
       .createQueryBuilder('c')
@@ -268,13 +312,139 @@ export class ClaimsService {
         'c."ClaimType" as "ClaimType"',
         'c."ClaimStatus" as "ClaimStatus"',
         'c."ReserveAmount" as "ReserveAmount"',
+        'c."AmountPaid" as "AmountPaid"',
+      ])
+      .where(yearCondition('c', 'ClaimDate', years))
+      .andWhere(monthCondition('c', 'ClaimDate', months));
+
+    if (q.product) qb.andWhere('c."Product" = :product', { product: q.product });
+    if (q.status) qb.andWhere('c."ClaimStatus" = :status', { status: q.status });
+    if (policies.length) qb.andWhere('c."PolicyNumber" IN (:...policies)', { policies });
+    if (q.search) {
+      qb.andWhere(
+        '(pol.subscriber_name ILIKE :s OR c."PolicyNumber" ILIKE :s OR c."ClaimNumber" ILIKE :s)',
+        { s: `%${q.search}%` },
+      );
+    }
+
+    const total = await qb.getCount();
+    const totalPages = Math.ceil(total / pageSize);
+    const records = await qb
+      .orderBy('c."ClaimDate"', 'DESC')
+      .offset((page - 1) * pageSize)
+      .limit(pageSize)
+      .getRawMany();
+
+    console.log(`[Claims-List API] Retrieved ${records.length} records (page ${page}/${totalPages}, total: ${total})`);
+
+    return { total, page, pageSize, totalPages, records };
+  }
+
+  async getPoliciesByInstallment(q: ClaimInstallmentQueryParams) {
+    const years = resolveYears(q);
+    const policies = q.policies?.split(',').filter(Boolean) ?? [];
+    const installments = resolveInstallments(q);
+    const policyEffectiveYears = this.resolvePolicyEffectiveYears(q);
+    const page = q.page ? +q.page : 1;
+    const pageSize = q.pageSize ? +q.pageSize : 10;
+
+    // Calculate installment number in SQL
+    const monthDiffExpr = `(
+      (EXTRACT(YEAR FROM c."ClaimDate"::date) - EXTRACT(YEAR FROM pol.effective_date::date)) * 12
+      + (EXTRACT(MONTH FROM c."ClaimDate"::date) - EXTRACT(MONTH FROM pol.effective_date::date))
+    )`;
+    const installmentExpr = `CASE 
+      WHEN ${monthDiffExpr} >= 0 THEN ${monthDiffExpr} + 1
+      ELSE ${monthDiffExpr}
+    END`;
+
+    const qb = this.claimRepo
+      .createQueryBuilder('c')
+      .innerJoin(Policy, 'pol', 'pol.policy_number = c."PolicyNumber"')
+      .select([
+        'c."PolicyNumber" as "PolicyNumber"',
+        'pol.subscriber_name as "SubscriberName"',
+        'pol.subscriber_number as "SubscriberNumber"',
+        'c."Product" as "Product"',
+        'pol.effective_date as "EffectiveDate"',
+        'pol.expiry_date as "ExpiryDate"',
+        'COUNT(c."ClaimNumber") as "ClaimCount"',
+        'SUM(c."AmountPaid") as "TotalAmountPaid"',
+      ])
+      .where(yearCondition('c', 'ClaimDate', years))
+      .andWhere('c."ClaimDate" IS NOT NULL')
+      .andWhere('pol.effective_date IS NOT NULL')
+      .groupBy('c."PolicyNumber", pol.subscriber_name, pol.subscriber_number, c."Product", pol.effective_date, pol.expiry_date');
+
+    if (q.product) qb.andWhere('c."Product" = :product', { product: q.product });
+    if (q.status) qb.andWhere('c."ClaimStatus" = :status', { status: q.status });
+    if (q.claimType) qb.andWhere('c."ClaimType" = :claimType', { claimType: q.claimType });
+    if (policies.length) qb.andWhere('c."PolicyNumber" IN (:...policies)', { policies });
+    if (policyEffectiveYears) qb.andWhere(yearCondition('pol', 'effective_date', policyEffectiveYears));
+    if (q.search) {
+      qb.andWhere(
+        '(pol.subscriber_name ILIKE :s OR c."PolicyNumber" ILIKE :s)',
+        { s: `%${q.search}%` },
+      );
+    }
+    
+    // Filter by installments in SQL
+    if (installments && installments.length > 0) {
+      qb.andWhere(`${installmentExpr} IN (:...installments)`, { installments });
+    }
+
+    const total = await qb.getCount();
+    const totalPages = Math.ceil(total / pageSize);
+    const records = await qb
+      .offset((page - 1) * pageSize)
+      .limit(pageSize)
+      .getRawMany();
+
+    console.log(`[Claim-Policies-Installment API] Retrieved ${records.length} policies (page ${page}/${totalPages}, total: ${total})`);
+
+    return { total, page, pageSize, totalPages, records };
+  }
+
+  async getClaimsByInstallment(q: ClaimInstallmentQueryParams) {
+    const years = resolveYears(q);
+    const policies = q.policies?.split(',').filter(Boolean) ?? [];
+    const installments = resolveInstallments(q);
+    const policyEffectiveYears = this.resolvePolicyEffectiveYears(q);
+    const page = q.page ? +q.page : 1;
+    const pageSize = q.pageSize ? +q.pageSize : 10;
+
+    // Calculate installment number in SQL
+    const monthDiffExpr = `(
+      (EXTRACT(YEAR FROM c."ClaimDate"::date) - EXTRACT(YEAR FROM pol.effective_date::date)) * 12
+      + (EXTRACT(MONTH FROM c."ClaimDate"::date) - EXTRACT(MONTH FROM pol.effective_date::date))
+    )`;
+    const installmentExpr = `CASE 
+      WHEN ${monthDiffExpr} >= 0 THEN ${monthDiffExpr} + 1
+      ELSE ${monthDiffExpr}
+    END`;
+
+    const qb = this.claimRepo
+      .createQueryBuilder('c')
+      .innerJoin(Policy, 'pol', 'pol.policy_number = c."PolicyNumber"')
+      .select([
+        'c."ClaimNumber" as "ClaimNumber"',
+        'c."PolicyNumber" as "PolicyNumber"',
+        'pol.subscriber_name as "SubscriberName"',
+        'pol.subscriber_number as "SubscriberNumber"',
+        'c."Product" as "Product"',
+        'c."ClaimDate" as "ClaimDate"',
+        'c."ClaimType" as "ClaimType"',
+        'c."ClaimStatus" as "ClaimStatus"',
+        'c."ReserveAmount" as "ReserveAmount"',
         'c."TotalAmountToPay" as "TotalAmountToPay"',
         'c."AmountPaid" as "AmountPaid"',
         'c."PaymentDate" as "PaymentDate"',
         'pol.effective_date as "EffectiveDate"',
+        `${installmentExpr} as "InstallmentNo"`,
       ])
       .where(yearCondition('c', 'ClaimDate', years))
-      .andWhere(monthCondition('c', 'ClaimDate', months));
+      .andWhere('c."ClaimDate" IS NOT NULL')
+      .andWhere('pol.effective_date IS NOT NULL');
 
     if (q.product) qb.andWhere('c."Product" = :product', { product: q.product });
     if (q.status) qb.andWhere('c."ClaimStatus" = :status', { status: q.status });
@@ -287,6 +457,11 @@ export class ClaimsService {
         { s: `%${q.search}%` },
       );
     }
+    
+    // Filter by installments in SQL
+    if (installments && installments.length > 0) {
+      qb.andWhere(`${installmentExpr} IN (:...installments)`, { installments });
+    }
 
     const total = await qb.getCount();
     const totalPages = Math.ceil(total / pageSize);
@@ -296,12 +471,12 @@ export class ClaimsService {
       .limit(pageSize)
       .getRawMany();
 
-    console.log(`[Claim-Policies API] Retrieved ${records.length} records (page ${page}/${totalPages}, total: ${total})`);
+    console.log(`[Claim-Details-Installment API] Retrieved ${records.length} claims (page ${page}/${totalPages}, total: ${total})`);
 
     return { total, page, pageSize, totalPages, records };
   }
 
-  private resolvePolicyEffectiveYears(q: ClaimQueryParams): number[] | null {
+  private resolvePolicyEffectiveYears(q: ClaimBaseQueryParams): number[] | null {
     const fake: BaseQueryParams = {
       filterMode: q.policyEffectiveFilterMode,
       year: q.policyYear,
