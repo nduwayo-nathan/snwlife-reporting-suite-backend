@@ -312,7 +312,10 @@ export class ClaimsService {
         'c."ClaimType" as "ClaimType"',
         'c."ClaimStatus" as "ClaimStatus"',
         'c."ReserveAmount" as "ReserveAmount"',
+        'c."TotalAmountToPay" as "TotalAmountToPay"',
         'c."AmountPaid" as "AmountPaid"',
+        'c."PaymentDate" as "PaymentDate"',
+        'c."Approver" as "Approver"',
       ])
       .where(yearCondition('c', 'ClaimDate', years))
       .andWhere(monthCondition('c', 'ClaimDate', months));
