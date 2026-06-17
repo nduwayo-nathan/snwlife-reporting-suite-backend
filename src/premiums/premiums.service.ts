@@ -35,6 +35,7 @@ export class PremiumsService {
 
     const qb = this.premiumRepo
       .createQueryBuilder('p')
+      .innerJoin(Policy, 'pol', 'pol.policy_number = p."PolicyNumber"')
       .select('p."Product"', 'product')
       .addSelect('COUNT(DISTINCT p."PolicyNumber")', 'count')
       .where('p."PaymentDate" IS NOT NULL')
@@ -45,6 +46,12 @@ export class PremiumsService {
     if (months) qb.andWhere(monthCondition('p', 'PaymentDate', months));
     if (q.state) qb.andWhere('p."State" = :state', { state: q.state });
     if (policies.length) qb.andWhere('p."PolicyNumber" IN (:...policies)', { policies });
+    if (q.search) {
+      qb.andWhere(
+        '(pol.subscriber_name ILIKE :s OR p."PolicyNumber" ILIKE :s OR p."Receipt" ILIKE :s)',
+        { s: `%${q.search}%` },
+      );
+    }
 
     const rows = await qb.getRawMany();
     return rows.map((r) => ({ product: r.product, count: +r.count }));
@@ -58,6 +65,7 @@ export class PremiumsService {
 
     const qb = this.premiumRepo
       .createQueryBuilder('p')
+      .innerJoin(Policy, 'pol', 'pol.policy_number = p."PolicyNumber"')
       .select('p."State"', 'state')
       .addSelect('COUNT(DISTINCT (p."PolicyNumber", p."State"))', 'count')
       .where('p."PaymentDate" IS NOT NULL')
@@ -69,6 +77,12 @@ export class PremiumsService {
     if (months) qb.andWhere(monthCondition('p', 'PaymentDate', months));
     if (q.product) qb.andWhere('p."Product" = :product', { product: q.product });
     if (policies.length) qb.andWhere('p."PolicyNumber" IN (:...policies)', { policies });
+    if (q.search) {
+      qb.andWhere(
+        '(pol.subscriber_name ILIKE :s OR p."PolicyNumber" ILIKE :s OR p."Receipt" ILIKE :s)',
+        { s: `%${q.search}%` },
+      );
+    }
 
     const rows = await qb.getRawMany();
     return rows.map((r) => ({ state: r.state, count: +r.count }));
@@ -93,6 +107,12 @@ export class PremiumsService {
     if (q.product) qb.andWhere('p."Product" = :product', { product: q.product });
     if (q.state) qb.andWhere('p."State" = :state', { state: q.state });
     if (policies.length) qb.andWhere('p."PolicyNumber" IN (:...policies)', { policies });
+    if (q.search) {
+      qb.andWhere(
+        '(pol.subscriber_name ILIKE :s OR p."PolicyNumber" ILIKE :s OR p."Receipt" ILIKE :s)',
+        { s: `%${q.search}%` },
+      );
+    }
 
     const rows = await qb.getRawMany();
 
@@ -105,6 +125,12 @@ export class PremiumsService {
       .groupBy('month');
 
     if (q.product) policyQb.andWhere('pol.product_code = :product', { product: q.product });
+    if (q.search) {
+      policyQb.andWhere(
+        '(pol.subscriber_name ILIKE :s OR pol.policy_number ILIKE :s)',
+        { s: `%${q.search}%` },
+      );
+    }
     const effectiveRows = await policyQb.getRawMany();
     const effectiveMap = new Map(effectiveRows.map((r) => [r.month, +r.effective]));
 
@@ -232,6 +258,12 @@ export class PremiumsService {
     if (q.product) qb.andWhere('p."Product" = :product', { product: q.product });
     if (q.state) qb.andWhere('p."State" = :state', { state: q.state });
     if (policies.length) qb.andWhere('p."PolicyNumber" IN (:...policies)', { policies });
+    if (q.search) {
+      qb.andWhere(
+        '(pol.subscriber_name ILIKE :s OR p."PolicyNumber" ILIKE :s OR p."Receipt" ILIKE :s)',
+        { s: `%${q.search}%` },
+      );
+    }
 
     const row = await qb.getRawOne();
     return {
