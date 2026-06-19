@@ -266,10 +266,51 @@ export class PremiumsService {
     }
 
     const row = await qb.getRawOne();
+
+    // Get lapsed policies count
+    const lapsedQb = this.policyRepo
+      .createQueryBuilder('pol')
+      .select('COUNT(DISTINCT pol.policy_number)', 'lapsedPolicies')
+      .where('pol.status = :status', { status: 'Lapsed' })
+      .andWhere(yearCondition('pol', 'effective_date', years));
+
+    if (q.product) lapsedQb.andWhere('pol.product_code = :product', { product: q.product });
+    if (q.search) {
+      lapsedQb.andWhere(
+        '(pol.subscriber_name ILIKE :s OR pol.policy_number ILIKE :s)',
+        { s: `%${q.search}%` },
+      );
+    }
+
+    const lapsedRow = await lapsedQb.getRawOne();
+
+    // Get latest posting date from premium table
+    const latestDateQb = this.premiumRepo
+      .createQueryBuilder('p')
+      .innerJoin(Policy, 'pol', 'pol.policy_number = p."PolicyNumber"')
+      .select('MAX(p."PostingDate")', 'latestPostingDate')
+      .where('p."PaymentDate" IS NOT NULL')
+      .andWhere(yearCondition('p', dateField, years));
+
+    if (months) latestDateQb.andWhere(monthCondition('p', 'PaymentDate', months));
+    if (q.product) latestDateQb.andWhere('p."Product" = :product', { product: q.product });
+    if (q.state) latestDateQb.andWhere('p."State" = :state', { state: q.state });
+    if (policies.length) latestDateQb.andWhere('p."PolicyNumber" IN (:...policies)', { policies });
+    if (q.search) {
+      latestDateQb.andWhere(
+        '(pol.subscriber_name ILIKE :s OR p."PolicyNumber" ILIKE :s OR p."Receipt" ILIKE :s)',
+        { s: `%${q.search}%` },
+      );
+    }
+
+    const latestDateRow = await latestDateQb.getRawOne();
+
     return {
       customers: +row.customers,
       policies: +row.policies,
+      lapsedPolicies: +lapsedRow.lapsedPolicies,
       premiumPaid: +row.premiumPaid,
+      latestPostingDate: latestDateRow.latestPostingDate,
     };
   }
 

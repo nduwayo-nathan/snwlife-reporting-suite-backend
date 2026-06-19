@@ -60,6 +60,11 @@ export class ClaimsController {
   getList(@Query() q: ClaimPaymentQueryParams) {
     return this.service.getList(q);
   }
+
+  @Get('related-premiums')
+  getRelatedPremiums(@Query() q: ClaimPaymentQueryParams) {
+    return this.service.getRelatedPremiums(q);
+  }
 }
 
 @Controller('api/claims-installment')
@@ -99,5 +104,10 @@ export class ClaimsInstallmentController {
   @Get('claims')
   getClaims(@Query() q: ClaimInstallmentQueryParams) {
     return this.service.getClaimsByInstallment(q);
+  }
+
+  @Get('related-premiums')
+  getRelatedPremiums(@Query() q: ClaimInstallmentQueryParams) {
+    return this.service.getRelatedPremiumsInstallment(q);
   }
 }

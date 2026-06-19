@@ -40,4 +40,9 @@ export class InstallmentsController {
   getPolicies(@Query() q: PremiumQueryParams) {
     return this.service.getPolicies(q);
   }
+
+  @Get('premiums-installments/claims')
+  getClaims(@Query() q: PremiumQueryParams) {
+    return this.service.getClaims(q);
+  }
 }
