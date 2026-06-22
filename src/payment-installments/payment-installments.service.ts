@@ -8,7 +8,7 @@ import { PremiumQueryParams } from '../share/dto/premium-query-params.dto';
 import { resolveYears, yearCondition, resolveMonths, monthCondition } from '../share/helpers/date-filter.helper';
 
 @Injectable()
-export class InstallmentsService {
+export class PaymentInstallmentsService {
   constructor(
     @InjectRepository(Premium) private premiumRepo: Repository<Premium>,
     @InjectRepository(Policy) private policyRepo: Repository<Policy>,

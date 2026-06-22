@@ -1,10 +1,10 @@
 import { Controller, Get, Query } from '@nestjs/common';
-import { PremiumsService } from './premiums.service';
+import { PaymentPremiumsService } from './payment-premiums.service';
 import { PremiumQueryParams, PremiumListQueryParams } from '../share/dto/premium-query-params.dto';
 
 @Controller('api')
-export class PremiumsController {
-  constructor(private readonly service: PremiumsService) {}
+export class PaymentPremiumsController {
+  constructor(private readonly service: PaymentPremiumsService) {}
 
   @Get('premiums-list')
   getPremiumsList(@Query() q: PremiumQueryParams) {

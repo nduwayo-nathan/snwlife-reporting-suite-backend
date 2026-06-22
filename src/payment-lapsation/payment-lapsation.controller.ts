@@ -1,10 +1,10 @@
 import { Controller, Get, Query } from '@nestjs/common';
-import { LapsationService } from './lapsation.service';
+import { PaymentLapsationService } from './payment-lapsation.service';
 import { PremiumQueryParams } from '../share/dto/premium-query-params.dto';
 
 @Controller('api')
-export class LapsationController {
-  constructor(private readonly service: LapsationService) {}
+export class PaymentLapsationController {
+  constructor(private readonly service: PaymentLapsationService) {}
 
   @Get('payment/lapsation/monthly-summary')
   getMonthlySummary(@Query() q: PremiumQueryParams) {

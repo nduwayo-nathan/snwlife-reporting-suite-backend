@@ -1,10 +1,10 @@
 import { Controller, Get, Query } from '@nestjs/common';
-import { InstallmentsService } from './installments.service';
+import { PaymentInstallmentsService } from './payment-installments.service';
 import { PremiumQueryParams } from '../share/dto/premium-query-params.dto';
 
 @Controller('api')
-export class InstallmentsController {
-  constructor(private readonly service: InstallmentsService) {}
+export class PaymentInstallmentsController {
+  constructor(private readonly service: PaymentInstallmentsService) {}
 
   @Get('premiums-installments/summary')
   getSummary(@Query() q: PremiumQueryParams) {

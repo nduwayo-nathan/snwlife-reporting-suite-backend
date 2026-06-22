@@ -1,14 +1,15 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ClaimsPaymentController } from './claims-payment.controller';
+import { ClaimsPaymentService } from './claims-payment.service';
 import { Claim } from '../entities/claim.entity';
 import { Policy } from '../entities/policy.entity';
 import { Premium } from '../entities/premium.entity';
-import { ClaimsService } from './claims.service';
-import { ClaimsListController, ClaimsController, ClaimsInstallmentController } from './claims.controller';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Claim, Policy, Premium])],
-  controllers: [ClaimsListController, ClaimsController, ClaimsInstallmentController],
-  providers: [ClaimsService],
+  controllers: [ClaimsPaymentController],
+  providers: [ClaimsPaymentService],
+  exports: [ClaimsPaymentService],
 })
-export class ClaimsModule {}
+export class ClaimsPaymentModule {}

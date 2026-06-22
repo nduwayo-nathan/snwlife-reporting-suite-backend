@@ -7,7 +7,7 @@ import { PolicyQueryParams } from '../share/dto/policy-query-params.dto';
 import { resolveYears, yearCondition, getInstallmentNo, resolveMonths, monthCondition } from '../share/helpers/date-filter.helper';
 
 @Injectable()
-export class PoliciesService {
+export class PoliciesListService {
   constructor(
     @InjectRepository(Policy) private policyRepo: Repository<Policy>,
     @InjectRepository(Premium) private premiumRepo: Repository<Premium>,
@@ -52,6 +52,7 @@ export class PoliciesService {
         'p.last_payment_date as "LastPaymentDate"',
         'p.date_lapsed as "DateLapsed"',
         'p.date_paid_up as "DatePaidUp"',
+        'p.gender as "Gender"',
       ]);
 
     // Apply year filter based on dateMode
@@ -81,7 +82,8 @@ export class PoliciesService {
     }
 
     if (q.product) qb.andWhere('p.product_code = :product', { product: q.product });
-    if (q.state) qb.andWhere('p.state = :state', { state: q.state });
+    if (q.state) qb.andWhere('p.status = :state', { state: q.state });
+    if (q.gender) qb.andWhere('p.gender = :gender', { gender: q.gender });
     if (q.search) {
       qb.andWhere(
         '(p.subscriber_name ILIKE :s OR p.policy_number ILIKE :s)',
@@ -125,6 +127,7 @@ export class PoliciesService {
         'p.last_payment_date as "LastPaymentDate"',
         'p.date_lapsed as "DateLapsed"',
         'p.date_paid_up as "DatePaidUp"',
+        'p.gender as "Gender"',
       ])
       .where(yearCondition('p', 'effective_date', years))
       .andWhere(q.product ? 'p.product_code = :product' : '1=1', { product: q.product })

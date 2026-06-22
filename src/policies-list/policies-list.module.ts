@@ -2,12 +2,12 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Policy } from '../entities/policy.entity';
 import { Premium } from '../entities/premium.entity';
-import { PoliciesService } from './policies.service';
-import { PoliciesController } from './policies.controller';
+import { PoliciesListService } from './policies-list.service';
+import { PoliciesListController } from './policies-list.controller';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Policy, Premium])],
-  controllers: [PoliciesController],
-  providers: [PoliciesService],
+  controllers: [PoliciesListController],
+  providers: [PoliciesListService],
 })
-export class PoliciesModule {}
+export class PoliciesListModule {}

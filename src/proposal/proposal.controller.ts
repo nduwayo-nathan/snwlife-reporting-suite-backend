@@ -1,10 +1,10 @@
 import { Controller, Get, Query } from '@nestjs/common';
-import { ProposalsService } from './proposals.service';
+import { ProposalService } from './proposal.service';
 import { ProposalQueryParams } from '../share/dto/proposal-query-params.dto';
 
 @Controller('api/proposals')
-export class ProposalsController {
-  constructor(private readonly service: ProposalsService) {}
+export class ProposalController {
+  constructor(private readonly service: ProposalService) {}
 
   @Get('years')
   getYears() {

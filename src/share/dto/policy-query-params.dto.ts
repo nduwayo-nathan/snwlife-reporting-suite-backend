@@ -16,6 +16,10 @@ export class PolicyQueryParams extends BaseQueryParams {
 
   @IsOptional()
   @IsString()
+  gender?: string;
+
+  @IsOptional()
+  @IsString()
   months?: string;
 
   @IsOptional()

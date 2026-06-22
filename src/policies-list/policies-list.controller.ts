@@ -1,10 +1,10 @@
 import { Controller, Get, Query } from '@nestjs/common';
-import { PoliciesService } from './policies.service';
+import { PoliciesListService } from './policies-list.service';
 import { PolicyQueryParams } from '../share/dto/policy-query-params.dto';
 
 @Controller('api')
-export class PoliciesController {
-  constructor(private readonly service: PoliciesService) {}
+export class PoliciesListController {
+  constructor(private readonly service: PoliciesListService) {}
 
   @Get('policies-list')
   getPoliciesList(@Query() q: PolicyQueryParams) {

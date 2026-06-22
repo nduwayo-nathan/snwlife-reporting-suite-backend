@@ -5,12 +5,15 @@ import { Policy } from './entities/policy.entity';
 import { Premium } from './entities/premium.entity';
 import { Claim } from './entities/claim.entity';
 import { Proposal } from './entities/proposal.entity';
-import { PremiumsModule } from './premiums/premiums.module';
-import { PoliciesModule } from './policies/policies.module';
-import { ClaimsModule } from './claims/claims.module';
-import { ProposalsModule } from './proposals/proposals.module';
-import { InstallmentsModule } from './installments/installments.module';
-import { LapsationModule } from './lapsation/lapsation.module';
+import { PaymentPremiumsModule } from './payment-premiums/payment-premiums.module';
+import { PoliciesListModule } from './policies-list/policies-list.module';
+import { ClaimsPaymentModule } from './claims-payment/claims-payment.module';
+import { ClaimsInstallmentsModule } from './claims-installments/claims-installments.module';
+import { ClaimsListModule } from './claims-list/claims-list.module';
+import { ProposalModule } from './proposal/proposal.module';
+import { PaymentInstallmentsModule } from './payment-installments/payment-installments.module';
+import { PaymentLapsationModule } from './payment-lapsation/payment-lapsation.module';
+import { PremiumsListModule } from './premiums-list/premiums-list.module';
 
 @Module({
   imports: [
@@ -24,12 +27,15 @@ import { LapsationModule } from './lapsation/lapsation.module';
       entities: [Policy, Premium, Claim, Proposal],
       synchronize: false,
     }),
-    PremiumsModule,
-    PoliciesModule,
-    ClaimsModule,
-    ProposalsModule,
-    InstallmentsModule,
-    LapsationModule,
+    PaymentPremiumsModule,
+    PoliciesListModule,
+    ClaimsPaymentModule,
+    ClaimsInstallmentsModule,
+    ClaimsListModule,
+    ProposalModule,
+    PaymentInstallmentsModule,
+    PaymentLapsationModule,
+    PremiumsListModule,
   ],
 })
 export class AppModule {}

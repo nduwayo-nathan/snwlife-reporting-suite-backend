@@ -9,7 +9,7 @@ import {
 } from '../share/helpers/date-filter.helper';
 
 @Injectable()
-export class ProposalsService {
+export class ProposalService {
   constructor(
     @InjectRepository(Proposal) private proposalRepo: Repository<Proposal>,
   ) {}
