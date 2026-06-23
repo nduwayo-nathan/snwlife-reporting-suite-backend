@@ -21,8 +21,8 @@ export class ClaimsPaymentController {
     return this.service.getMonthlySummary(q);
   }
 
-  @Get('records')
-  getRecords(@Query() q: ClaimPaymentQueryParams) {
+  @Get('claims')
+  getClaims(@Query() q: ClaimPaymentQueryParams) {
     return this.service.getRecords(q);
   }
 
@@ -46,8 +46,8 @@ export class ClaimsPaymentController {
     return this.service.getCards(q);
   }
 
-  @Get('list')
-  getList(@Query() q: ClaimPaymentQueryParams) {
+  @Get('policies')
+  getPolicies(@Query() q: ClaimPaymentQueryParams) {
     return this.service.getList(q);
   }
 

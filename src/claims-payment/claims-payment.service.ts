@@ -28,6 +28,7 @@ export class ClaimsPaymentService {
 
   async getPolicyYears(q: ClaimPaymentQueryParams): Promise<number[]> {
     const years = resolveYears(q);
+    const months = resolveMonths(q);
     const policies = q.policies?.split(',').filter(Boolean) ?? [];
 
     const qb = this.claimRepo
@@ -35,6 +36,7 @@ export class ClaimsPaymentService {
       .innerJoin(Policy, 'pol', 'pol.policy_number = c."PolicyNumber"')
       .select('DISTINCT EXTRACT(YEAR FROM pol.effective_date::date)::int', 'year')
       .where(yearCondition('c', 'ClaimDate', years))
+      .andWhere(monthCondition('c', 'ClaimDate', months))
       .andWhere('pol.effective_date IS NOT NULL')
       .orderBy('year', 'ASC');
 
@@ -120,33 +122,49 @@ export class ClaimsPaymentService {
     return { total, page, pageSize, totalPages, records: paginatedRecords };
   }
 
-  async getByProduct(q: ClaimBaseQueryParams) {
+  async getByProduct(q: ClaimPaymentQueryParams) {
     const years = resolveYears(q);
+    const months = resolveMonths(q);
+    const policies = q.policies?.split(',').filter(Boolean) ?? [];
+    const policyEffectiveYears = this.resolvePolicyEffectiveYears(q);
+
     const qb = this.claimRepo
       .createQueryBuilder('c')
+      .innerJoin(Policy, 'pol', 'pol.policy_number = c."PolicyNumber"')
       .select('c."Product"', 'product')
       .addSelect('SUM(c."AmountPaid")', 'total')
       .where(yearCondition('c', 'ClaimDate', years))
+      .andWhere(monthCondition('c', 'ClaimDate', months))
       .groupBy('c."Product"');
 
     if (q.status) qb.andWhere('c."ClaimStatus" = :status', { status: q.status });
     if (q.claimType) qb.andWhere('c."ClaimType" = :claimType', { claimType: q.claimType });
+    if (policies.length) qb.andWhere('c."PolicyNumber" IN (:...policies)', { policies });
+    if (policyEffectiveYears) qb.andWhere(yearCondition('pol', 'effective_date', policyEffectiveYears));
 
     const rows = await qb.getRawMany();
     return rows.map((r) => ({ product: r.product, total: +r.total }));
   }
 
-  async getByStatus(q: ClaimBaseQueryParams) {
+  async getByStatus(q: ClaimPaymentQueryParams) {
     const years = resolveYears(q);
+    const months = resolveMonths(q);
+    const policies = q.policies?.split(',').filter(Boolean) ?? [];
+    const policyEffectiveYears = this.resolvePolicyEffectiveYears(q);
+
     const qb = this.claimRepo
       .createQueryBuilder('c')
+      .innerJoin(Policy, 'pol', 'pol.policy_number = c."PolicyNumber"')
       .select('c."ClaimStatus"', 'status')
       .addSelect('SUM(c."AmountPaid")', 'total')
       .where(yearCondition('c', 'ClaimDate', years))
+      .andWhere(monthCondition('c', 'ClaimDate', months))
       .groupBy('c."ClaimStatus"');
 
     if (q.product) qb.andWhere('c."Product" = :product', { product: q.product });
     if (q.claimType) qb.andWhere('c."ClaimType" = :claimType', { claimType: q.claimType });
+    if (policies.length) qb.andWhere('c."PolicyNumber" IN (:...policies)', { policies });
+    if (policyEffectiveYears) qb.andWhere(yearCondition('pol', 'effective_date', policyEffectiveYears));
 
     const rows = await qb.getRawMany();
     return rows.map((r) => ({ status: r.status, total: +r.total }));
@@ -154,22 +172,31 @@ export class ClaimsPaymentService {
 
   async getByType(q: ClaimPaymentQueryParams) {
     const years = resolveYears(q);
+    const months = resolveMonths(q);
+    const policies = q.policies?.split(',').filter(Boolean) ?? [];
+    const policyEffectiveYears = this.resolvePolicyEffectiveYears(q);
+
     const qb = this.claimRepo
       .createQueryBuilder('c')
+      .innerJoin(Policy, 'pol', 'pol.policy_number = c."PolicyNumber"')
       .select('c."ClaimType"', 'type')
       .addSelect('SUM(c."AmountPaid")', 'total')
       .where(yearCondition('c', 'ClaimDate', years))
+      .andWhere(monthCondition('c', 'ClaimDate', months))
       .groupBy('c."ClaimType"');
 
     if (q.product) qb.andWhere('c."Product" = :product', { product: q.product });
     if (q.status) qb.andWhere('c."ClaimStatus" = :status', { status: q.status });
+    if (policies.length) qb.andWhere('c."PolicyNumber" IN (:...policies)', { policies });
+    if (policyEffectiveYears) qb.andWhere(yearCondition('pol', 'effective_date', policyEffectiveYears));
 
     const rows = await qb.getRawMany();
     return rows.map((r) => ({ type: r.type, total: +r.total }));
   }
 
-  async getCards(q: ClaimBaseQueryParams) {
+  async getCards(q: ClaimPaymentQueryParams) {
     const years = resolveYears(q);
+    const months = resolveMonths(q);
     const policies = q.policies?.split(',').filter(Boolean) ?? [];
     const policyEffectiveYears = this.resolvePolicyEffectiveYears(q);
 
@@ -181,7 +208,8 @@ export class ClaimsPaymentService {
       .addSelect('SUM(c."AmountPaid")', 'amountPaid')
       .addSelect('SUM(c."ReserveAmount")', 'reserveAmount')
       .addSelect('MAX(c."ClaimDate")', 'latestClaimDate')
-      .where(yearCondition('c', 'ClaimDate', years));
+      .where(yearCondition('c', 'ClaimDate', years))
+      .andWhere(monthCondition('c', 'ClaimDate', months));
 
     if (q.product) qb.andWhere('c."Product" = :product', { product: q.product });
     if (q.status) qb.andWhere('c."ClaimStatus" = :status', { status: q.status });
@@ -203,43 +231,51 @@ export class ClaimsPaymentService {
     const years = resolveYears(q);
     const policies = q.policies?.split(',').filter(Boolean) ?? [];
     const months = resolveMonths(q);
+    const policyEffectiveYears = this.resolvePolicyEffectiveYears(q);
     const page = q.page ? +q.page : 1;
     const pageSize = q.pageSize ? +q.pageSize : 100;
 
-    const qb = this.claimRepo
+    const baseQb = this.claimRepo
       .createQueryBuilder('c')
       .innerJoin(Policy, 'pol', 'pol.policy_number = c."PolicyNumber"')
-      .select([
-        'c."ClaimNumber" as "ClaimNumber"',
-        'c."PolicyNumber" as "PolicyNumber"',
-        'pol.subscriber_name as "SubscriberName"',
-        'c."Product" as "Product"',
-        'c."ClaimDate" as "ClaimDate"',
-        'c."ClaimType" as "ClaimType"',
-        'c."ClaimStatus" as "ClaimStatus"',
-        'c."ReserveAmount" as "ReserveAmount"',
-        'c."TotalAmountToPay" as "TotalAmountToPay"',
-        'c."AmountPaid" as "AmountPaid"',
-        'c."PaymentDate" as "PaymentDate"',
-        'c."Approver" as "Approver"',
-      ])
       .where(yearCondition('c', 'ClaimDate', years))
       .andWhere(monthCondition('c', 'ClaimDate', months));
 
-    if (q.product) qb.andWhere('c."Product" = :product', { product: q.product });
-    if (q.status) qb.andWhere('c."ClaimStatus" = :status', { status: q.status });
-    if (policies.length) qb.andWhere('c."PolicyNumber" IN (:...policies)', { policies });
+    if (q.product) baseQb.andWhere('c."Product" = :product', { product: q.product });
+    if (q.status) baseQb.andWhere('c."ClaimStatus" = :status', { status: q.status });
+    if (q.claimType) baseQb.andWhere('c."ClaimType" = :claimType', { claimType: q.claimType });
+    if (policies.length) baseQb.andWhere('c."PolicyNumber" IN (:...policies)', { policies });
+    if (policyEffectiveYears) baseQb.andWhere(yearCondition('pol', 'effective_date', policyEffectiveYears));
     if (q.search) {
-      qb.andWhere(
-        '(pol.subscriber_name ILIKE :s OR c."PolicyNumber" ILIKE :s OR c."ClaimNumber" ILIKE :s)',
+      baseQb.andWhere(
+        '(pol.subscriber_name ILIKE :s OR c."PolicyNumber" ILIKE :s)',
         { s: `%${q.search}%` },
       );
     }
 
-    const total = await qb.getCount();
+    // Count distinct policies
+    const countQb = baseQb.clone();
+    const countResult = await countQb
+      .select('COUNT(DISTINCT c."PolicyNumber")', 'total')
+      .getRawOne();
+    const total = +countResult.total;
     const totalPages = Math.ceil(total / pageSize);
+
+    // Get paginated grouped data
+    const qb = baseQb.clone();
     const records = await qb
-      .orderBy('c."ClaimDate"', 'DESC')
+      .select([
+        'c."PolicyNumber" as "PolicyNumber"',
+        'pol.subscriber_name as "SubscriberName"',
+        'pol.subscriber_number as "SubscriberNumber"',
+        'c."Product" as "Product"',
+        'pol.effective_date as "EffectiveDate"',
+        'pol.expiry_date as "ExpiryDate"',
+        'COUNT(c."ClaimNumber") as "ClaimCount"',
+        'SUM(c."AmountPaid") as "TotalAmountPaid"',
+      ])
+      .groupBy('c."PolicyNumber", pol.subscriber_name, pol.subscriber_number, c."Product", pol.effective_date, pol.expiry_date')
+      .orderBy('c."PolicyNumber"', 'ASC')
       .offset((page - 1) * pageSize)
       .limit(pageSize)
       .getRawMany();
@@ -294,6 +330,13 @@ export class ClaimsPaymentService {
       .where('p."PolicyNumber" IN (:...policyNumbers)', { policyNumbers })
       .andWhere('p."PaymentDate" IS NOT NULL');
 
+    if (q.search) {
+      qb.andWhere(
+        '(p."PolicyNumber" ILIKE :s OR pol.subscriber_name ILIKE :s OR p."Receipt" ILIKE :s)',
+        { s: `%${q.search}%` },
+      );
+    }
+
     const total = await qb.getCount();
     const totalPages = Math.ceil(total / pageSize);
     const records = await qb
@@ -302,7 +345,11 @@ export class ClaimsPaymentService {
       .limit(pageSize)
       .getRawMany();
 
-    console.log(`[Related-Premiums Payment API] Retrieved ${records.length} premium records (page ${page}/${totalPages}, total: ${total}) for ${policyNumbers.length} claim policies`);
+    if (pageSize === 1) {
+      console.log(`[Related-Premiums Count API] Total: ${total} premium records for ${policyNumbers.length} claim policies`);
+    } else {
+      console.log(`[Related-Premiums Payment API] Retrieved ${records.length} premium records (page ${page}/${totalPages}, total: ${total}) for ${policyNumbers.length} claim policies`);
+    }
     return { total, page, pageSize, totalPages, records };
   }
 

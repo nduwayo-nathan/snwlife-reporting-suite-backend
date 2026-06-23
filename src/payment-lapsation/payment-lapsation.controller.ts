@@ -35,4 +35,9 @@ export class PaymentLapsationController {
   getMissedMonths(@Query() q: PremiumQueryParams) {
     return this.service.getMissedMonths(q);
   }
+
+  @Get('payment/lapsation/missed-premium-count')
+  getMissedPremiumCount(@Query() q: PremiumQueryParams) {
+    return this.service.getMissedPremiumCount(q);
+  }
 }

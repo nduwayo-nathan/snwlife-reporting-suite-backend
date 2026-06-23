@@ -12,7 +12,7 @@ export class ClaimsListService {
     @InjectRepository(Claim) private claimRepo: Repository<Claim>,
   ) {}
 
-  async getList(q: ClaimPaymentQueryParams) {
+  async getClaims(q: ClaimPaymentQueryParams) {
     const years = resolveYears(q);
     const policies = q.policies?.split(',').filter(Boolean) ?? [];
     const months = resolveMonths(q);
@@ -60,5 +60,44 @@ export class ClaimsListService {
     console.log(`[Claims-List API] Retrieved ${records.length} records (page ${page}/${totalPages}, total: ${total})`);
 
     return { total, page, pageSize, totalPages, records };
+  }
+
+  async getCards(q: ClaimPaymentQueryParams) {
+    const years = resolveYears(q);
+    const policies = q.policies?.split(',').filter(Boolean) ?? [];
+    const months = resolveMonths(q);
+
+    const qb = this.claimRepo
+      .createQueryBuilder('c')
+      .innerJoin(Policy, 'pol', 'pol.policy_number = c."PolicyNumber"')
+      .where(yearCondition('c', 'ClaimDate', years))
+      .andWhere(monthCondition('c', 'ClaimDate', months));
+
+    if (q.product) qb.andWhere('c."Product" = :product', { product: q.product });
+    if (q.status) qb.andWhere('c."ClaimStatus" = :status', { status: q.status });
+    if (q.claimType) qb.andWhere('c."ClaimType" = :claimType', { claimType: q.claimType });
+    if (policies.length) qb.andWhere('c."PolicyNumber" IN (:...policies)', { policies });
+    if (q.search) {
+      qb.andWhere(
+        '(pol.subscriber_name ILIKE :s OR c."PolicyNumber" ILIKE :s OR c."ClaimNumber" ILIKE :s)',
+        { s: `%${q.search}%` },
+      );
+    }
+
+    const result = await qb
+      .select([
+        'COUNT(DISTINCT c."ClaimNumber") as claims',
+        'COALESCE(SUM(c."ReserveAmount"), 0) as "reserveAmount"',
+        'COALESCE(SUM(c."AmountPaid"), 0) as "amountPaid"',
+      ])
+      .getRawOne();
+
+    console.log('[Claims-List Cards API] Summary:', result);
+
+    return {
+      claims: +result.claims,
+      reserveAmount: +result.reserveAmount,
+      amountPaid: +result.amountPaid,
+    };
   }
 }

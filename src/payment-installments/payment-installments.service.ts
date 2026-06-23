@@ -617,7 +617,39 @@ export class PaymentInstallmentsService {
       console.log(`✅ [Installments Claims API] Retrieved ${records.length} claims from ${filteredPolicies.length} policies (page ${page}/${totalPages}, total: ${total})`);
       return { total, page, pageSize, totalPages, records };
     } else {
-      // No installments selected - directly query claims by year (like old method)
+      // No installments selected - get policies from premium filters, then their claims
+      const policyQb = this.premiumRepo
+        .createQueryBuilder('pr')
+        .innerJoin(Policy, 'pol', 'pol.policy_number = pr."PolicyNumber"')
+        .select('DISTINCT pr."PolicyNumber"', 'PolicyNumber')
+        .where('pr."PaymentDate" IS NOT NULL')
+        .andWhere('pol.effective_date IS NOT NULL');
+
+      if (q.dateMode === 'effective') {
+        policyQb.andWhere(yearCondition('pol', 'effective_date', years));
+      } else {
+        policyQb.andWhere(yearCondition('pr', 'PaymentDate', years));
+      }
+
+      if (q.product) policyQb.andWhere('pr."Product" = :product', { product: q.product });
+      if (q.state) policyQb.andWhere('pr."State" = :state', { state: q.state });
+      if (policies.length) policyQb.andWhere('pr."PolicyNumber" IN (:...policies)', { policies });
+      if (q.search) {
+        policyQb.andWhere(
+          '(pol.subscriber_name ILIKE :s OR pr."PolicyNumber" ILIKE :s OR pr."Receipt" ILIKE :s)',
+          { s: `%${q.search}%` },
+        );
+      }
+
+      const policyResults = await policyQb.getRawMany();
+      const filteredPolicies = policyResults.map(r => r.PolicyNumber);
+
+      if (filteredPolicies.length === 0) {
+        console.log(`✅ [Installments Claims API] No policies found`);
+        return { total: 0, page, pageSize, totalPages: 0, records: [] };
+      }
+
+      // Get claims for these policies
       const qb = this.claimRepo
         .createQueryBuilder('c')
         .innerJoin(Policy, 'pol', 'pol.policy_number = c."PolicyNumber"')
@@ -637,16 +669,8 @@ export class PaymentInstallmentsService {
           'pol.effective_date as "EffectiveDate"',
           `${claimInstallmentExpr} as "installmentNo"`,
         ])
-        .where('c."ClaimDate" IS NOT NULL')
-        .andWhere(yearCondition('c', 'ClaimDate', years));
+        .where('c."PolicyNumber" IN (:...filteredPolicies)', { filteredPolicies });
 
-      if (q.product) qb.andWhere('c."Product" = :product', { product: q.product });
-      if (q.state) {
-        // For state filter, we need to join with Premium to get state
-        qb.innerJoin('Premium', 'pr', 'pr."PolicyNumber" = c."PolicyNumber"');
-        qb.andWhere('pr."State" = :state', { state: q.state });
-      }
-      if (policies.length) qb.andWhere('c."PolicyNumber" IN (:...policies)', { policies });
       if (q.search) {
         qb.andWhere(
           '(pol.subscriber_name ILIKE :s OR c."PolicyNumber" ILIKE :s OR c."ClaimNumber" ILIKE :s)',
@@ -662,7 +686,7 @@ export class PaymentInstallmentsService {
         .limit(pageSize)
         .getRawMany();
 
-      console.log(`✅ [Installments Claims API] Retrieved ${records.length} claims (page ${page}/${totalPages}, total: ${total})`);
+      console.log(`✅ [Installments Claims API] Retrieved ${records.length} claims from ${filteredPolicies.length} policies (page ${page}/${totalPages}, total: ${total})`);
       return { total, page, pageSize, totalPages, records };
     }
   }

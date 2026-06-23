@@ -3,7 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Premium } from '../entities/premium.entity';
 import { Policy } from '../entities/policy.entity';
-import { PremiumQueryParams, PremiumListQueryParams } from '../share/dto/premium-query-params.dto';
+import { Claim } from '../entities/claim.entity';
+import { PremiumQueryParams } from '../share/dto/premium-query-params.dto';
 import { resolveYears, yearCondition, resolveMonths, monthCondition } from '../share/helpers/date-filter.helper';
 
 @Injectable()
@@ -11,6 +12,7 @@ export class PaymentPremiumsService {
   constructor(
     @InjectRepository(Premium) private premiumRepo: Repository<Premium>,
     @InjectRepository(Policy) private policyRepo: Repository<Policy>,
+    @InjectRepository(Claim) private claimRepo: Repository<Claim>,
   ) {}
 
   async getYears(): Promise<number[]> {
@@ -314,6 +316,150 @@ export class PaymentPremiumsService {
     };
   }
 
+  async getPolicies(q: PremiumQueryParams) {
+    const years = resolveYears(q) ?? [new Date().getFullYear()];
+    const months = resolveMonths(q);
+    const dateField = q.dateMode === 'effective' ? 'EffectDate' : 'PaymentDate';
+    const page = q.page ? +q.page : 1;
+    const pageSize = q.pageSize ? +q.pageSize : 500;
+
+    const qb = this.premiumRepo
+      .createQueryBuilder('pr')
+      .innerJoin(Policy, 'pol', 'pol.policy_number = pr."PolicyNumber"')
+      .select([
+        'pol.policy_number as "PolicyNumber"',
+        'pol.subscriber_number as "SubscriberNumber"',
+        'pol.subscriber_name as "SubscriberName"',
+        'pol.product_code as "ProductCode"',
+        'pol.product_name as "ProductName"',
+        'pol.agent_code as "AgentCode"',
+        'pol.agent_name as "AgentName"',
+        'pol.effective_date as "EffectiveDate"',
+        'pol.expiry_date as "ExpiryDate"',
+        'pol.premium as "Premium"',
+        'pol.total_premium_paid as "TotalPremiumPaid"',
+        'pol.total_pure_premium as "TotalPurePremium"',
+        'pol.sum_assured as "SumAssured"',
+        'pol.status as "Status"',
+        'pol.status_date as "StatusDate"',
+        'pol.contract_duration as "ContractDuration"',
+        'pol.last_payment_date as "LastPaymentDate"',
+        'pol.date_lapsed as "DateLapsed"',
+        'pol.date_paid_up as "DatePaidUp"',
+        'pol.gender as "Gender"',
+      ])
+      .where('pr."PaymentDate" IS NOT NULL')
+      .andWhere(yearCondition('pr', dateField, years));
+
+    if (months) qb.andWhere(monthCondition('pr', 'PaymentDate', months));
+    if (q.product) qb.andWhere('pr."Product" = :product', { product: q.product });
+    if (q.state) qb.andWhere('pr."State" = :state', { state: q.state });
+    if (q.search) {
+      qb.andWhere(
+        '(pol.subscriber_name ILIKE :s OR pol.policy_number ILIKE :s)',
+        { s: `%${q.search}%` },
+      );
+    }
+
+    // Group by policy to get distinct policies
+    qb.groupBy('pol.policy_number')
+      .addGroupBy('pol.subscriber_number')
+      .addGroupBy('pol.subscriber_name')
+      .addGroupBy('pol.product_code')
+      .addGroupBy('pol.product_name')
+      .addGroupBy('pol.agent_code')
+      .addGroupBy('pol.agent_name')
+      .addGroupBy('pol.effective_date')
+      .addGroupBy('pol.expiry_date')
+      .addGroupBy('pol.premium')
+      .addGroupBy('pol.total_premium_paid')
+      .addGroupBy('pol.total_pure_premium')
+      .addGroupBy('pol.sum_assured')
+      .addGroupBy('pol.status')
+      .addGroupBy('pol.status_date')
+      .addGroupBy('pol.contract_duration')
+      .addGroupBy('pol.last_payment_date')
+      .addGroupBy('pol.date_lapsed')
+      .addGroupBy('pol.date_paid_up')
+      .addGroupBy('pol.gender');
+
+    const total = await qb.getCount();
+    const totalPages = Math.ceil(total / pageSize);
+    const policies = await qb
+      .orderBy('pol.total_premium_paid', 'DESC')
+      .offset((page - 1) * pageSize)
+      .limit(pageSize)
+      .getRawMany();
+
+    console.log(`✅ [Payment Premiums - Policies API] Retrieved ${policies.length} records (page ${page}/${totalPages}, total: ${total})`);
+    return { total, page, pageSize, totalPages, records: policies };
+  }
+
+  async getClaims(q: PremiumQueryParams) {
+    const years = resolveYears(q) ?? [new Date().getFullYear()];
+    const months = resolveMonths(q);
+    const dateField = q.dateMode === 'effective' ? 'EffectDate' : 'PaymentDate';
+    const policies = q.policies?.split(',').filter(Boolean) ?? [];
+    const page = q.page ? +q.page : 1;
+    const pageSize = q.pageSize ? +q.pageSize : 100;
+
+    // First get policies that match the premium filters
+    const premQb = this.premiumRepo
+      .createQueryBuilder('pr')
+      .select('DISTINCT pr."PolicyNumber" as "PolicyNumber"')
+      .where('pr."PaymentDate" IS NOT NULL')
+      .andWhere(yearCondition('pr', dateField, years));
+
+    if (months) premQb.andWhere(monthCondition('pr', 'PaymentDate', months));
+    if (q.product) premQb.andWhere('pr."Product" = :product', { product: q.product });
+    if (q.state) premQb.andWhere('pr."State" = :state', { state: q.state });
+    if (policies.length) premQb.andWhere('pr."PolicyNumber" IN (:...policies)', { policies });
+
+    const premPolicies = await premQb.getRawMany();
+    const policyNumbers = premPolicies.map(p => p.PolicyNumber).filter(Boolean);
+
+    if (!policyNumbers.length) {
+      return { total: 0, page, pageSize, totalPages: 0, records: [] };
+    }
+
+    // Now get claims for those policies
+    const qb = this.claimRepo
+      .createQueryBuilder('c')
+      .innerJoin(Policy, 'pol', 'pol.policy_number = c."PolicyNumber"')
+      .select([
+        'c."ClaimNumber" as "ClaimNumber"',
+        'c."PolicyNumber" as "PolicyNumber"',
+        'pol.subscriber_name as "SubscriberName"',
+        'c."Product" as "Product"',
+        'c."ClaimDate" as "ClaimDate"',
+        'c."ClaimType" as "ClaimType"',
+        'c."ClaimStatus" as "ClaimStatus"',
+        'c."ReserveAmount" as "ReserveAmount"',
+        'c."TotalAmountToPay" as "TotalAmountToPay"',
+        'c."AmountPaid" as "AmountPaid"',
+        'c."PaymentDate" as "PaymentDate"',
+      ])
+      .where('c."PolicyNumber" IN (:...policyNumbers)', { policyNumbers });
+
+    if (q.search) {
+      qb.andWhere(
+        '(pol.subscriber_name ILIKE :s OR c."PolicyNumber" ILIKE :s OR c."ClaimNumber" ILIKE :s)',
+        { s: `%${q.search}%` },
+      );
+    }
+
+    const total = await qb.getCount();
+    const totalPages = Math.ceil(total / pageSize);
+    const records = await qb
+      .orderBy('c."ClaimDate"', 'DESC')
+      .offset((page - 1) * pageSize)
+      .limit(pageSize)
+      .getRawMany();
+
+    console.log(`✅ [Payment Premiums - Claims API] Retrieved ${records.length} records (page ${page}/${totalPages}, total: ${total})`);
+    return { total, page, pageSize, totalPages, records };
+  }
+
   async getPoliciesSummary(q: PremiumQueryParams) {
     const years = resolveYears(q);
     const months = resolveMonths(q);
@@ -386,77 +532,4 @@ export class PaymentPremiumsService {
     return { total, page, pageSize, totalPages, records };
   }
 
-  async getList(q: PremiumListQueryParams) {
-    const years = resolveYears(q);
-    const page = q.page ? +q.page : 1;
-    const pageSize = q.pageSize ? +q.pageSize : 500;
-
-    const qb = this.premiumRepo
-      .createQueryBuilder('p')
-      .innerJoin(Policy, 'pol', 'pol.policy_number = p."PolicyNumber"')
-      .select([
-        'p."PolicyNumber" as "PolicyNumber"',
-        'pol.subscriber_name as "SubscriberName"',
-        'p."Product" as "ProductCode"',
-        'pol.product_name as "ProductName"',
-        'p."EffectDate" as "EffectDate"',
-        'p."PremiumDuration" as "PremiumDuration"',
-        'p."Premium" as "Premium"',
-        'p."PremiumPaid" as "PremiumPaid"',
-        'p."PaymentDate" as "PaymentDate"',
-        'p."Receipt" as "Receipt"',
-        'p."AgencyCode" as "AgencyCode"',
-        'p."AgencyName" as "AgencyName"',
-        'p."State" as "State"',
-      ])
-      .where('p."PaymentDate" IS NOT NULL');
-
-    if (q.dateMode === 'effective') {
-      qb.andWhere(yearCondition('pol', 'effective_date', years));
-    } else {
-      qb.andWhere(yearCondition('p', 'PaymentDate', years));
-    }
-
-    if (q.product) qb.andWhere('p."Product" = :product', { product: q.product });
-    if (q.state) qb.andWhere('p."State" = :state', { state: q.state });
-    if (q.search) {
-      qb.andWhere(
-        '(pol.subscriber_name ILIKE :s OR p."PolicyNumber" ILIKE :s OR p."Receipt" ILIKE :s)',
-        { s: `%${q.search}%` },
-      );
-    }
-
-    const total = await qb.getCount();
-    const totalPages = Math.ceil(total / pageSize);
-    const records = await qb
-      .orderBy('p."PaymentDate"', 'ASC')
-      .offset((page - 1) * pageSize)
-      .limit(pageSize)
-      .getRawMany();
-
-    const cardQb = this.premiumRepo
-      .createQueryBuilder('p')
-      .select('COUNT(DISTINCT p."PolicyNumber")', 'policies')
-      .addSelect('SUM(p."Premium")', 'expectedPremium')
-      .addSelect('SUM(p."PremiumPaid")', 'premiumPaid')
-      .where('p."PaymentDate" IS NOT NULL')
-      .andWhere(yearCondition('p', 'PaymentDate', years));
-
-    if (q.product) cardQb.andWhere('p."Product" = :product', { product: q.product });
-    if (q.state) cardQb.andWhere('p."State" = :state', { state: q.state });
-
-    const cardRow = await cardQb.getRawOne();
-
-    console.log(`✅ [Premiums List API] Retrieved ${records.length} records (page ${page}/${totalPages}, total: ${total})`);
-    return {
-      total,
-      totalPages,
-      records,
-      cards: {
-        policies: +cardRow.policies,
-        expectedPremium: +cardRow.expectedPremium,
-        premiumPaid: +cardRow.premiumPaid,
-      },
-    };
-  }
 }

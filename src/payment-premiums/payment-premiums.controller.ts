@@ -1,15 +1,10 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { PaymentPremiumsService } from './payment-premiums.service';
-import { PremiumQueryParams, PremiumListQueryParams } from '../share/dto/premium-query-params.dto';
+import { PremiumQueryParams } from '../share/dto/premium-query-params.dto';
 
 @Controller('api')
 export class PaymentPremiumsController {
   constructor(private readonly service: PaymentPremiumsService) {}
-
-  @Get('premiums-list')
-  getPremiumsList(@Query() q: PremiumQueryParams) {
-    return this.service.getRecords(q);
-  }
 
   @Get('premiums-payment/monthly-summary')
   getMonthlySummary(@Query() q: PremiumQueryParams) {
@@ -36,8 +31,18 @@ export class PaymentPremiumsController {
     return this.service.getPoliciesSummary(q);
   }
 
-  @Get('premiums-payment/records')
-  getRecords(@Query() q: PremiumQueryParams) {
+  @Get('premiums-payment/policies')
+  getPolicies(@Query() q: PremiumQueryParams) {
+    return this.service.getPolicies(q);
+  }
+
+  @Get('premiums-payment/claims')
+  getClaims(@Query() q: PremiumQueryParams) {
+    return this.service.getClaims(q);
+  }
+
+  @Get('premiums-payment/premiums')
+  getPremiums(@Query() q: PremiumQueryParams) {
     return this.service.getRecords(q);
   }
 
@@ -54,10 +59,5 @@ export class PaymentPremiumsController {
   @Get('premiums-payment/cards')
   getCards(@Query() q: PremiumQueryParams) {
     return this.service.getCards(q);
-  }
-
-  @Get('premiums-payment/list')
-  getList(@Query() q: PremiumListQueryParams) {
-    return this.service.getList(q);
   }
 }

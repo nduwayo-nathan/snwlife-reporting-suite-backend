@@ -664,4 +664,109 @@ export class PaymentLapsationService {
       throw error;
     }
   }
+
+  async getMissedPremiumCount(q: PremiumQueryParams) {
+    try {
+      const years = resolveYears(q);
+      const months = resolveMonths(q);
+
+      let query = `
+        WITH policy_payments AS (
+          SELECT 
+            p."PolicyNumber",
+            p."EffectDate" as effective_date,
+            p."PaymentExpiryDate" as payment_expiry_date,
+            p."Premium" as annual_premium,
+            p."PaymentDate"
+          FROM premium p
+          WHERE p."EffectDate" IS NOT NULL
+            AND p."Premium" IS NOT NULL
+            AND p."Premium" > 0
+      `;
+
+      const params: any[] = [];
+      let paramIndex = 1;
+
+      if (years && years.length > 0) {
+        query += ` AND EXTRACT(YEAR FROM p."EffectDate") = ANY($${paramIndex}::int[])`;
+        params.push(years);
+        paramIndex++;
+      }
+
+      if (q.product) {
+        query += ` AND p."Product" = $${paramIndex}`;
+        params.push(q.product);
+        paramIndex++;
+      }
+
+      if (q.state) {
+        query += ` AND p."State" = $${paramIndex}`;
+        params.push(q.state);
+        paramIndex++;
+      }
+
+      query += `
+        ),
+        policy_data AS (
+          SELECT DISTINCT ON ("PolicyNumber")
+            "PolicyNumber",
+            effective_date,
+            payment_expiry_date,
+            annual_premium
+          FROM policy_payments
+        ),
+        expected_months AS (
+          SELECT 
+            pd."PolicyNumber",
+            pd.annual_premium / 12 as monthly_premium,
+            generate_series(
+              pd.effective_date,
+              LEAST(
+                COALESCE(pd.payment_expiry_date, pd.effective_date + interval '100 years'),
+                CURRENT_DATE
+              ),
+              interval '1 month'
+            )::date AS expected_month_start
+          FROM policy_data pd
+        ),
+        paid_months AS (
+          SELECT DISTINCT
+            pp."PolicyNumber",
+            date_trunc('month', pp."PaymentDate")::date as paid_month
+          FROM policy_payments pp
+          WHERE pp."PaymentDate" IS NOT NULL
+        ),
+        missed_by_policy AS (
+          SELECT 
+            em."PolicyNumber",
+            COUNT(*) as missed_months,
+            SUM(em.monthly_premium) as missed_amount
+          FROM expected_months em
+          LEFT JOIN paid_months pm ON 
+            em."PolicyNumber" = pm."PolicyNumber" 
+            AND date_trunc('month', em.expected_month_start) = pm.paid_month
+          WHERE pm.paid_month IS NULL
+          GROUP BY em."PolicyNumber"
+        )
+        SELECT 
+          COALESCE(SUM(missed_months), 0)::int as count,
+          COALESCE(SUM(missed_amount), 0)::numeric as amount,
+          COUNT(DISTINCT "PolicyNumber")::int as policies
+        FROM missed_by_policy
+        WHERE missed_months > 0
+      `;
+
+      const result = await this.premiumRepo.query(query, params);
+      const row = result[0] || { count: 0, amount: 0, policies: 0 };
+
+      return {
+        count: +row.count || 0,
+        amount: +row.amount || 0,
+        policies: +row.policies || 0,
+      };
+    } catch (error) {
+      console.error('❌ [Lapsation] Error in getMissedPremiumCount:', error);
+      throw error;
+    }
+  }
 }
