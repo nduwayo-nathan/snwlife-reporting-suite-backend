@@ -43,27 +43,8 @@ export class PoliciesListService {
         'p.gender as "Gender"',
       ]);
 
-    // Apply year filter based on dateMode
-    if (q.dateMode === 'effective') {
-      // For effective mode: policies that became effective AND paid premiums in the year(s)
-      const subquery = this.premiumRepo
-        .createQueryBuilder('pr')
-        .select('pr."PolicyNumber"')
-        .where('pr."PaymentDate" IS NOT NULL')
-        .andWhere(yearCondition('pr', 'PaymentDate', years));
-      
-      qb.where(yearCondition('p', 'effective_date', years))
-        .andWhere(`p.policy_number IN (${subquery.getQuery()})`);
-    } else {
-      // For payment mode: filter by policies that have premium payments in the year(s)
-      const subquery = this.premiumRepo
-        .createQueryBuilder('pr')
-        .select('pr."PolicyNumber"')
-        .where('pr."PaymentDate" IS NOT NULL')
-        .andWhere(yearCondition('pr', 'PaymentDate', years));
-      
-      qb.where(`p.policy_number IN (${subquery.getQuery()})`);
-    }
+    // Apply year filter - policies-list only filters by effective_date
+    qb.where(yearCondition('p', 'effective_date', years));
 
     if (q.product) qb.andWhere('p.product_code = :product', { product: q.product });
     if (q.state) qb.andWhere('p.status = :state', { state: q.state });
@@ -96,25 +77,8 @@ export class PoliciesListService {
       .addSelect('SUM(p.premium)', 'totalPremium')
       .addSelect('SUM(p.total_premium_paid)', 'totalPremiumPaid');
 
-    // Apply year filter based on dateMode
-    if (q.dateMode === 'effective') {
-      const subquery = this.premiumRepo
-        .createQueryBuilder('pr')
-        .select('pr."PolicyNumber"')
-        .where('pr."PaymentDate" IS NOT NULL')
-        .andWhere(yearCondition('pr', 'PaymentDate', years));
-      
-      qb.where(yearCondition('p', 'effective_date', years))
-        .andWhere(`p.policy_number IN (${subquery.getQuery()})`);
-    } else {
-      const subquery = this.premiumRepo
-        .createQueryBuilder('pr')
-        .select('pr."PolicyNumber"')
-        .where('pr."PaymentDate" IS NOT NULL')
-        .andWhere(yearCondition('pr', 'PaymentDate', years));
-      
-      qb.where(`p.policy_number IN (${subquery.getQuery()})`);
-    }
+    // Apply year filter - policies-list only filters by effective_date
+    qb.where(yearCondition('p', 'effective_date', years));
 
     if (q.product) qb.andWhere('p.product_code = :product', { product: q.product });
     if (q.state) qb.andWhere('p.status = :state', { state: q.state });

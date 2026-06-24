@@ -34,13 +34,8 @@ export class PremiumsListService {
         'p."AgencyName" as "AgencyName"',
         'p."State" as "State"',
       ])
-      .where('p."PaymentDate" IS NOT NULL');
-
-    if (q.dateMode === 'effective') {
-      qb.andWhere(yearCondition('pol', 'effective_date', years));
-    } else {
-      qb.andWhere(yearCondition('p', 'PaymentDate', years));
-    }
+      .where('p."PaymentDate" IS NOT NULL')
+      .andWhere(yearCondition('p', 'PaymentDate', years));
 
     if (q.product) qb.andWhere('p."Product" = :product', { product: q.product });
     if (q.state) qb.andWhere('p."State" = :state', { state: q.state });
@@ -79,6 +74,11 @@ export class PremiumsListService {
       pageSize,
       totalPages,
       records,
+      cards: {
+        policies: +cardRow.policies,
+        expectedPremium: +cardRow.expectedPremium,
+        premiumPaid: +cardRow.premiumPaid,
+      },
     };
   }
 
